@@ -102,7 +102,10 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 		case key.Matches(msg, neighborKeys.Refresh):
 			// Clear stale entries and refresh
 			m.store.ClearNewFlags()
+			m.flashRows = make(map[string]time.Time)
 			m.scrollOffset = 0
+			// Force a screen clear/redraw
+			return m, tea.ClearScreen
 		case key.Matches(msg, neighborKeys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, neighborKeys.Up):
@@ -381,17 +384,23 @@ func (m NeighborTableModel) renderTable() string {
 
 // renderNeighborRow renders a single neighbor row
 func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []column) string {
-	// Determine style based on state
-	cellStyle := m.styles.TableCell
+	// Determine style based on state:
+	// - Stale (no updates for 3-4 min) = gray
+	// - Active (getting updates) = green
+	// - New/flashing = bold green
+	var cellStyle lipgloss.Style
+
 	if n.IsStale {
 		cellStyle = m.styles.TableCellStale
-	}
-
-	// Check if this row should flash
-	if _, flashing := m.flashRows[n.NeighborKey()]; flashing || n.IsNew {
+	} else if _, flashing := m.flashRows[n.NeighborKey()]; flashing || n.IsNew {
+		// Brand new or just updated - bold green
 		cellStyle = lipgloss.NewStyle().
 			Foreground(m.styles.TableRowNew.GetForeground()).
 			Bold(true)
+	} else {
+		// Active neighbor - regular green (not bold)
+		cellStyle = lipgloss.NewStyle().
+			Foreground(m.styles.TableRowNew.GetForeground())
 	}
 
 	var cells []string
@@ -456,15 +465,36 @@ func (m NeighborTableModel) renderFooter() string {
 	return footerStyle.Render(footerContent)
 }
 
-// truncate truncates a string to the given width
+// truncate truncates a string to the given width and pads with spaces
 func truncate(s string, width int) string {
-	if len(s) <= width {
-		return s + strings.Repeat(" ", width-len(s))
+	// Use lipgloss width to handle Unicode properly
+	visWidth := lipgloss.Width(s)
+	if visWidth <= width {
+		return s + strings.Repeat(" ", width-visWidth)
 	}
 	if width <= 3 {
-		return s[:width]
+		// Truncate by runes, not bytes
+		runes := []rune(s)
+		if len(runes) > width {
+			return string(runes[:width])
+		}
+		return s
 	}
-	return s[:width-3] + "..."
+	// Truncate to width-3 and add ellipsis
+	runes := []rune(s)
+	targetLen := width - 3
+	if targetLen < 0 {
+		targetLen = 0
+	}
+	// Find how many runes fit in targetLen visual width
+	result := ""
+	for _, r := range runes {
+		if lipgloss.Width(result+string(r)) > targetLen {
+			break
+		}
+		result += string(r)
+	}
+	return result + "..."
 }
 
 // MarkNewNeighbor marks a neighbor for flashing

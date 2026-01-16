@@ -162,12 +162,10 @@ func NewStyles(theme Theme) Styles {
 			Bold(true),
 
 		TableCell: lipgloss.NewStyle().
-			Foreground(theme.Base05).
-			PaddingRight(2),
+			Foreground(theme.Base06), // Light foreground for better visibility
 
 		TableCellStale: lipgloss.NewStyle().
-			Foreground(theme.Base03).
-			PaddingRight(2),
+			Foreground(theme.Base03),
 
 		TableSelected: lipgloss.NewStyle().
 			Background(theme.Base02).
