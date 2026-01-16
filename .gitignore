@@ -1,0 +1,27 @@
+# Binaries
+nbor
+nbor.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build output
+/dist/
+
+# Log files
+*.csv
+
+# IDE
+.vscode/
+.claude/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage.out
