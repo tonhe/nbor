@@ -243,3 +243,128 @@ func GetInterfaceInternalName(displayName string) string {
 	}
 	return displayName
 }
+
+// GetAllInterfaces returns all pcap-visible interfaces without filtering
+func GetAllInterfaces() ([]types.InterfaceInfo, error) {
+	devices, err := pcap.FindAllDevs()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []types.InterfaceInfo
+
+	for _, dev := range devices {
+		// Use description as display name, but store GUID mapping
+		displayName := dev.Description
+		if displayName == "" {
+			displayName = dev.Name
+		}
+
+		interfaceMapping[displayName] = dev.Name
+
+		// Extract IP addresses from pcap device info
+		var ipv4Addrs, ipv6Addrs []net.IP
+		for _, addr := range dev.Addresses {
+			if addr.IP == nil {
+				continue
+			}
+			if ip4 := addr.IP.To4(); ip4 != nil {
+				if !ip4.IsLoopback() {
+					ipv4Addrs = append(ipv4Addrs, ip4)
+				}
+			} else {
+				if !addr.IP.IsLinkLocalUnicast() && !addr.IP.IsLoopback() {
+					ipv6Addrs = append(ipv6Addrs, addr.IP)
+				}
+			}
+		}
+
+		// Try to find matching net.Interface for MAC and status
+		iface := findNetInterfaceByPcap(dev)
+
+		var mac net.HardwareAddr
+		var isUp bool
+		var mtu int
+
+		if iface != nil {
+			mac = iface.HardwareAddr
+			isUp = iface.Flags&net.FlagUp != 0
+			mtu = iface.MTU
+		} else {
+			isUp = len(ipv4Addrs) > 0 || len(ipv6Addrs) > 0
+			mtu = 1500
+		}
+
+		// Skip interfaces without MAC and without IPs (not useful)
+		if len(mac) == 0 && len(ipv4Addrs) == 0 && len(ipv6Addrs) == 0 {
+			continue
+		}
+
+		info := types.InterfaceInfo{
+			Name:      displayName,
+			MAC:       mac,
+			IsUp:      isUp,
+			MTU:       mtu,
+			Speed:     "",
+			IPv4Addrs: ipv4Addrs,
+			IPv6Addrs: ipv6Addrs,
+		}
+
+		result = append(result, info)
+	}
+
+	return result, nil
+}
+
+// GetFilterReason returns why an interface was filtered, or empty string if not filtered
+func GetFilterReason(name string) string {
+	nameLower := strings.ToLower(name)
+
+	// Check exclusion keywords
+	exclusionReasons := map[string]string{
+		"wireless":   "WiFi interface",
+		"wi-fi":      "WiFi interface",
+		"wifi":       "WiFi interface",
+		"bluetooth":  "Bluetooth interface",
+		"virtual":    "virtual interface",
+		"vpn":        "VPN interface",
+		"loopback":   "loopback interface",
+		"tunnel":     "tunnel interface",
+		"miniport":   "WAN miniport",
+		"wan miniport": "WAN miniport",
+		"microsoft":  "Microsoft virtual adapter",
+		"hyper-v":    "virtual interface (Hyper-V)",
+		"vmware":     "virtual interface (VMware)",
+		"virtualbox": "virtual interface (VirtualBox)",
+		"npcap":      "Npcap loopback adapter",
+		"filter":     "filter driver",
+		"pseudo":     "pseudo interface",
+	}
+
+	for keyword, reason := range exclusionReasons {
+		if strings.Contains(nameLower, keyword) {
+			return reason
+		}
+	}
+
+	// Check if it's not an Ethernet-like interface
+	ethernetKeywords := []string{
+		"ethernet", "gbe", "nic", "gigabit", "10/100",
+		"realtek", "intel", "broadcom", "marvell",
+		"network adapter", "pci", "usb ethernet", "usb3.0 to ethernet",
+	}
+
+	isEthernet := false
+	for _, keyword := range ethernetKeywords {
+		if strings.Contains(nameLower, keyword) {
+			isEthernet = true
+			break
+		}
+	}
+
+	if !isEthernet {
+		return "not recognized as Ethernet adapter"
+	}
+
+	return ""
+}

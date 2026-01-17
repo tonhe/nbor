@@ -18,13 +18,13 @@ const (
 
 // AppModel is the main application model
 type AppModel struct {
-	state    AppState
-	picker   InterfacePickerModel
+	state     AppState
+	picker    InterfacePickerModel
 	neighbors NeighborTableModel
-	store    *types.NeighborStore
-	err      error
-	width    int
-	height   int
+	store     *types.NeighborStore
+	err       error
+	width     int
+	height    int
 
 	// Channel for sending selected interface back to main
 	selectChan chan<- types.InterfaceInfo

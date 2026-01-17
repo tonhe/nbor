@@ -19,7 +19,8 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
 - **Visual Alerts**: New neighbors are highlighted and trigger a terminal bell
 - **Stale Detection**: Neighbors not seen for 3-4 minutes are grayed out
 - **CSV Logging**: All discoveries are logged to a timestamped CSV file
-- **Solarized Dark Theme**: Clean, readable interface with Base16 theming support
+- **20 Built-in Themes**: Solarized, Gruvbox, Dracula, Nord, Tokyo Night, Catppuccin, and more
+- **Configuration File**: Persistent settings with XDG support on Linux/macOS and %APPDATA% on Windows
 
 ## Platform Support
 
@@ -69,20 +70,67 @@ go build -o nbor.exe
 
 ## Usage
 
-The tool requires elevated privileges for packet capture:
+The tool requires elevated privileges for packet capture.
 
-### Linux/macOS
+### Basic Usage
 
 ```bash
+# Linux/macOS
 sudo ./nbor
+
+# Windows (Run as Administrator)
+.\nbor.exe
 ```
 
-### Windows
+### Command Line Options
 
-Run from an elevated Command Prompt or PowerShell (Run as Administrator):
+```
+Usage:
+  nbor [options] [interface]
 
-```powershell
-.\nbor.exe
+Options:
+  -t, --theme <name>      Use specified theme (session only)
+  --list-themes           List available themes
+  -l, --list-interfaces   List available network interfaces
+  --list-all-interfaces   List all interfaces (including filtered)
+  -v, --version           Show version
+  -h, --help              Show this help
+```
+
+### Examples
+
+```bash
+# Interactive interface picker (default)
+sudo ./nbor
+
+# Start capture directly on a specific interface
+sudo ./nbor eth0                    # Linux
+sudo ./nbor en0                     # macOS (with warning for WiFi)
+.\nbor.exe "Ethernet 2"             # Windows (interface with spaces)
+
+# Use a different theme for this session
+sudo ./nbor --theme dracula
+sudo ./nbor --theme tokyo-night
+sudo ./nbor -t catppuccin-mocha eth0
+
+# List available interfaces
+sudo ./nbor -l
+
+# List all interfaces including filtered ones (WiFi, virtual, etc.)
+sudo ./nbor --list-all-interfaces
+
+# List available themes
+./nbor --list-themes
+```
+
+### Filtered Interface Warning
+
+When you specify an interface that would normally be filtered (WiFi, virtual, tunnel, etc.), nbor will warn but allow you to proceed:
+
+```
+Warning: 'en0' appears to be a WiFi interface
+CDP/LLDP protocols are typically only used on wired networks.
+Continuing anyway...
 ```
 
 ## Interface
@@ -109,18 +157,73 @@ The codebase is structured for maintainability and future multi-interface suppor
 
 ```
 nbor/
-├── main.go           # Application entry point
+├── main.go           # Application entry point and CLI parsing
 ├── capture/          # Packet capture with gopacket/libpcap
+├── config/           # Configuration file loading (TOML)
+├── logger/           # CSV logging
 ├── parser/           # CDP and LLDP protocol parsing
 ├── platform/         # OS-specific abstractions (Linux/macOS/Windows)
 ├── tui/              # Terminal UI with bubbletea/lipgloss
-├── logger/           # CSV logging
-└── types/            # Shared data types
+├── types/            # Shared data types
+└── version/          # Version constant
 ```
 
 ## Theming
 
-The TUI uses a Base16 color scheme (Solarized Dark by default). The theme system is designed to support future configuration file-based theme switching.
+nbor includes 20 built-in themes based on the Base16 color specification.
+
+### Available Themes
+
+| Slug | Display Name |
+|------|--------------|
+| `solarized-dark` | Solarized Dark (default) |
+| `solarized-light` | Solarized Light |
+| `gruvbox-dark` | Gruvbox Dark |
+| `gruvbox-light` | Gruvbox Light |
+| `dracula` | Dracula |
+| `nord` | Nord |
+| `one-dark` | One Dark |
+| `monokai` | Monokai |
+| `tokyo-night` | Tokyo Night |
+| `catppuccin-mocha` | Catppuccin Mocha |
+| `catppuccin-latte` | Catppuccin Latte |
+| `everforest` | Everforest |
+| `kanagawa` | Kanagawa |
+| `rose-pine` | Rosé Pine |
+| `tomorrow-night` | Tomorrow Night |
+| `ayu-dark` | Ayu Dark |
+| `horizon` | Horizon |
+| `zenburn` | Zenburn |
+| `palenight` | Palenight |
+| `github-dark` | GitHub Dark |
+
+Use `nbor --list-themes` to see available themes. Theme names use hyphens (not spaces), so "Tokyo Night" becomes `tokyo-night`.
+
+**For a single session:**
+```bash
+sudo ./nbor --theme dracula
+```
+
+**To set permanently**, see the Configuration section below.
+
+## Configuration
+
+nbor stores settings in a TOML config file that is created automatically on first run.
+
+### Config File Locations
+
+| Platform | Location |
+|----------|----------|
+| Linux    | `$XDG_CONFIG_HOME/nbor/config.toml` (default: `~/.config/nbor/config.toml`) |
+| macOS    | `$XDG_CONFIG_HOME/nbor/config.toml` (default: `~/.config/nbor/config.toml`) |
+| Windows  | `%APPDATA%\nbor\config.toml` |
+
+### Example config.toml
+
+```toml
+# Theme name (use slug format with hyphens)
+theme = "tokyo-night"
+```
 
 ## License
 

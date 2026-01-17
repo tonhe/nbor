@@ -12,10 +12,8 @@ import (
 
 	"nbor/logger"
 	"nbor/types"
+	"nbor/version"
 )
-
-// Version of the application
-const Version = "0.1.0"
 
 // Column definition for responsive table
 type column struct {
@@ -204,7 +202,7 @@ func (m NeighborTableModel) renderHeader() string {
 	versionStyle := lipgloss.NewStyle().
 		Foreground(theme.Base03).
 		Background(bg)
-	leftPart := nameStyle.Render("nbor") + sp + versionStyle.Render("v"+Version)
+	leftPart := nameStyle.Render("nbor") + sp + versionStyle.Render("v"+version.Version)
 
 	// Middle: interface info
 	ifaceStyle := lipgloss.NewStyle().

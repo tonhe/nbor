@@ -292,7 +292,7 @@ type InterfaceInfo struct {
 	Name      string
 	MAC       net.HardwareAddr
 	IsUp      bool
-	Speed     string   // Link speed if available
+	Speed     string // Link speed if available
 	MTU       int
 	IPv4Addrs []net.IP // IPv4 addresses assigned to this interface
 	IPv6Addrs []net.IP // IPv6 addresses (excluding link-local fe80::)
