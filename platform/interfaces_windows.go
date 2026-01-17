@@ -37,17 +37,6 @@ func GetEthernetInterfaces() ([]types.InterfaceInfo, error) {
 			continue
 		}
 
-		// Get interface from net package for MAC and status
-		iface, err := findNetInterface(dev.Name)
-		if err != nil {
-			continue
-		}
-
-		// Skip interfaces without MAC
-		if len(iface.HardwareAddr) == 0 {
-			continue
-		}
-
 		// Use description as display name, but store GUID mapping
 		displayName := dev.Description
 		if displayName == "" {
@@ -56,14 +45,52 @@ func GetEthernetInterfaces() ([]types.InterfaceInfo, error) {
 
 		interfaceMapping[displayName] = dev.Name
 
-		// Get IP addresses
-		ipv4Addrs, ipv6Addrs := types.GetInterfaceAddresses(iface)
+		// Extract IP addresses from pcap device info
+		// This is more reliable on Windows than matching to net.Interface
+		var ipv4Addrs, ipv6Addrs []net.IP
+		for _, addr := range dev.Addresses {
+			if addr.IP == nil {
+				continue
+			}
+			if ip4 := addr.IP.To4(); ip4 != nil {
+				if !ip4.IsLoopback() {
+					ipv4Addrs = append(ipv4Addrs, ip4)
+				}
+			} else {
+				if !addr.IP.IsLinkLocalUnicast() && !addr.IP.IsLoopback() {
+					ipv6Addrs = append(ipv6Addrs, addr.IP)
+				}
+			}
+		}
+
+		// Try to find matching net.Interface for MAC and status
+		// Use multiple matching strategies
+		iface := findNetInterfaceByPcap(dev)
+
+		var mac net.HardwareAddr
+		var isUp bool
+		var mtu int
+
+		if iface != nil {
+			mac = iface.HardwareAddr
+			isUp = iface.Flags&net.FlagUp != 0
+			mtu = iface.MTU
+		} else {
+			// If we couldn't match, assume it's up if it has addresses
+			isUp = len(ipv4Addrs) > 0 || len(ipv6Addrs) > 0
+			mtu = 1500 // Default MTU
+		}
+
+		// Skip interfaces without MAC (unless we have IPs, which means it's valid)
+		if len(mac) == 0 && len(ipv4Addrs) == 0 && len(ipv6Addrs) == 0 {
+			continue
+		}
 
 		info := types.InterfaceInfo{
 			Name:      displayName,
-			MAC:       iface.HardwareAddr,
-			IsUp:      iface.Flags&net.FlagUp != 0,
-			MTU:       iface.MTU,
+			MAC:       mac,
+			IsUp:      isUp,
+			MTU:       mtu,
 			Speed:     "", // Speed detection is complex on Windows
 			IPv4Addrs: ipv4Addrs,
 			IPv6Addrs: ipv6Addrs,
@@ -133,40 +160,60 @@ func isEthernetInterface(desc string) bool {
 	return false
 }
 
-// findNetInterface finds the net.Interface matching a pcap device name
-func findNetInterface(pcapName string) (*net.Interface, error) {
+// findNetInterfaceByPcap finds the net.Interface matching a pcap device
+// Uses multiple strategies: GUID matching, IP address matching
+func findNetInterfaceByPcap(dev pcap.Interface) *net.Interface {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
+	// Strategy 1: Match by GUID
 	// Windows pcap names look like: \Device\NPF_{GUID}
-	// Net interface names may have a different format
-	// Try to match by extracting the GUID
-	guid := extractGUID(pcapName)
-
-	for i := range ifaces {
-		ifaceGUID := extractGUID(ifaces[i].Name)
-		if guid != "" && ifaceGUID != "" && strings.EqualFold(guid, ifaceGUID) {
-			return &ifaces[i], nil
+	guid := extractGUID(dev.Name)
+	if guid != "" {
+		for i := range ifaces {
+			ifaceGUID := extractGUID(ifaces[i].Name)
+			if ifaceGUID != "" && strings.EqualFold(guid, ifaceGUID) {
+				return &ifaces[i]
+			}
 		}
 	}
 
-	// Fallback: try exact match
-	for i := range ifaces {
-		if strings.Contains(pcapName, ifaces[i].Name) || strings.Contains(ifaces[i].Name, pcapName) {
-			return &ifaces[i], nil
+	// Strategy 2: Match by IP address
+	// If pcap device has addresses, find net.Interface with same IP
+	for _, pcapAddr := range dev.Addresses {
+		if pcapAddr.IP == nil {
+			continue
+		}
+		for i := range ifaces {
+			addrs, err := ifaces[i].Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+				if ip != nil && ip.Equal(pcapAddr.IP) {
+					return &ifaces[i]
+				}
+			}
 		}
 	}
 
-	// Return first interface with a MAC as last resort
+	// Strategy 3: Try substring match on name
 	for i := range ifaces {
-		if len(ifaces[i].HardwareAddr) > 0 {
-			return &ifaces[i], nil
+		if strings.Contains(dev.Name, ifaces[i].Name) || strings.Contains(ifaces[i].Name, dev.Name) {
+			return &ifaces[i]
 		}
 	}
 
-	return nil, net.ErrClosed
+	return nil
 }
 
 // extractGUID extracts a GUID from a string

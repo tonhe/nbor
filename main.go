@@ -8,7 +8,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google/gopacket"
+	"github.com/muesli/termenv"
 
 	"nbor/capture"
 	"nbor/logger"
@@ -17,6 +19,14 @@ import (
 	"nbor/tui"
 	"nbor/types"
 )
+
+func init() {
+	// Force true color mode on Windows Terminal which supports it but doesn't
+	// set COLORTERM environment variable. This enables proper background colors.
+	// Safe to call even on terminals that don't support true color - they'll
+	// just display the closest available colors.
+	lipgloss.SetColorProfile(termenv.TrueColor)
+}
 
 // Global channel for interface selection (needed because bubbletea copies the model)
 var selectedInterfaceChan = make(chan types.InterfaceInfo, 1)

@@ -71,8 +71,40 @@ jobs:
           name: linux-binaries
           path: nbor-linux-*
 
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Download and extract Npcap SDK
+        shell: pwsh
+        run: |
+          # Download Npcap SDK (contains headers and libraries for building)
+          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "npcap-sdk.zip"
+          Expand-Archive -Path "npcap-sdk.zip" -DestinationPath "npcap-sdk"
+
+      - name: Build Windows (amd64)
+        shell: pwsh
+        env:
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-I${{ github.workspace }}/npcap-sdk/Include"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/npcap-sdk/Lib/x64"
+        run: |
+          go build -o nbor-windows-amd64.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: nbor-windows-amd64.exe
+
   release:
-    needs: [build-macos, build-linux]
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

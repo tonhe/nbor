@@ -26,8 +26,8 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
 | Platform | Status |
 |----------|--------|
 | macOS    | Tested |
-| Linux    | Completely untested |
-| Windows  | Completely untested |
+| Linux    | Untested |
+| Windows  | Tested |
 
 ## Requirements
 

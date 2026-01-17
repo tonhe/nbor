@@ -191,23 +191,32 @@ func (m NeighborTableModel) View() string {
 // renderHeader renders the application header with colors spread across width
 func (m NeighborTableModel) renderHeader() string {
 	theme := DefaultTheme
+	bg := theme.Base01
+
+	// Single space with background for joining elements
+	sp := lipgloss.NewStyle().Background(bg).Render(" ")
 
 	// Left side: app name and version
 	nameStyle := lipgloss.NewStyle().
 		Foreground(theme.Base0C).
+		Background(bg).
 		Bold(true)
 	versionStyle := lipgloss.NewStyle().
-		Foreground(theme.Base03)
-	leftPart := nameStyle.Render("nbor") + " " + versionStyle.Render("v"+Version)
+		Foreground(theme.Base03).
+		Background(bg)
+	leftPart := nameStyle.Render("nbor") + sp + versionStyle.Render("v"+Version)
 
 	// Middle: interface info
 	ifaceStyle := lipgloss.NewStyle().
 		Foreground(theme.Base0D).
+		Background(bg).
 		Bold(true)
 	macStyle := lipgloss.NewStyle().
-		Foreground(theme.Base05)
+		Foreground(theme.Base05).
+		Background(bg)
 	speedStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0A)
+		Foreground(theme.Base0A).
+		Background(bg)
 
 	mac := ""
 	if m.ifaceInfo.MAC != nil {
@@ -216,20 +225,22 @@ func (m NeighborTableModel) renderHeader() string {
 
 	middlePart := ifaceStyle.Render(m.ifaceInfo.Name)
 	if mac != "" {
-		middlePart += " " + macStyle.Render(mac)
+		middlePart += sp + macStyle.Render(mac)
 	}
 	if m.ifaceInfo.Speed != "" {
-		middlePart += " " + speedStyle.Render(m.ifaceInfo.Speed)
+		middlePart += sp + speedStyle.Render(m.ifaceInfo.Speed)
 	}
 
 	// Right side: neighbor count
 	countStyle := lipgloss.NewStyle().
 		Foreground(theme.Base0B).
+		Background(bg).
 		Bold(true)
 	labelStyle := lipgloss.NewStyle().
-		Foreground(theme.Base04)
+		Foreground(theme.Base04).
+		Background(bg)
 	count := m.store.Count()
-	rightPart := countStyle.Render(fmt.Sprintf("%d", count)) + " " + labelStyle.Render("neighbor(s)")
+	rightPart := countStyle.Render(fmt.Sprintf("%d", count)) + sp + labelStyle.Render("neighbor(s)")
 
 	// Calculate spacing to spread across width
 	leftLen := lipgloss.Width(leftPart)
@@ -249,12 +260,13 @@ func (m NeighborTableModel) renderHeader() string {
 	leftGap := remainingSpace / 2
 	rightGap := remainingSpace - leftGap
 
-	// Build header content
-	headerContent := leftPart + strings.Repeat(" ", leftGap) + middlePart + strings.Repeat(" ", rightGap) + rightPart
+	// Build header content with background-colored spaces
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	headerContent := leftPart + spaceStyle.Render(strings.Repeat(" ", leftGap)) + middlePart + spaceStyle.Render(strings.Repeat(" ", rightGap)) + rightPart
 
-	// Apply background style
+	// Apply background style to container
 	headerStyle := lipgloss.NewStyle().
-		Background(theme.Base01).
+		Background(bg).
 		Padding(0, 1).
 		Width(m.width)
 
@@ -415,15 +427,19 @@ func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []colum
 // renderFooter renders the footer with hotkeys spread across width
 func (m NeighborTableModel) renderFooter() string {
 	theme := DefaultTheme
+	bg := theme.Base01
 
-	// Key styling
+	// Key styling - all with background
 	keyStyle := lipgloss.NewStyle().
 		Foreground(theme.Base0C).
+		Background(bg).
 		Bold(true)
 	textStyle := lipgloss.NewStyle().
-		Foreground(theme.Base04)
+		Foreground(theme.Base04).
+		Background(bg)
 	sepStyle := lipgloss.NewStyle().
-		Foreground(theme.Base02)
+		Foreground(theme.Base02).
+		Background(bg)
 
 	// Build left side: commands
 	sep := sepStyle.Render(" │ ")
@@ -435,7 +451,8 @@ func (m NeighborTableModel) renderFooter() string {
 	var rightPart string
 	if m.logPath != "" {
 		fileStyle := lipgloss.NewStyle().
-			Foreground(theme.Base0A)
+			Foreground(theme.Base0A).
+			Background(bg)
 		rightPart = textStyle.Render("logging: ") + fileStyle.Render(m.logPath)
 	}
 
@@ -453,12 +470,13 @@ func (m NeighborTableModel) renderFooter() string {
 		gap = 1
 	}
 
-	// Build footer content
-	footerContent := leftPart + strings.Repeat(" ", gap) + rightPart
+	// Build footer content with background-colored spaces
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	footerContent := leftPart + spaceStyle.Render(strings.Repeat(" ", gap)) + rightPart
 
 	// Apply background style
 	footerStyle := lipgloss.NewStyle().
-		Background(theme.Base01).
+		Background(bg).
 		Padding(0, 1).
 		Width(m.width)
 

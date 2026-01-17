@@ -87,13 +87,19 @@ type Neighbor struct {
 }
 
 // NeighborKey generates a unique key for this neighbor
-// We use source MAC + interface as the key so CDP and LLDP from the same device merge
+// We key by source MAC since that identifies the physical port sending to us
+// CDP and LLDP from the same physical port will have the same source MAC
 func (n *Neighbor) NeighborKey() string {
+	// Source MAC is the most reliable key - it's the actual MAC sending the packet
+	// Both CDP and LLDP from the same port should have the same source MAC
 	if n.SourceMAC != nil {
 		return n.Interface + ":" + n.SourceMAC.String()
 	}
-	// Fallback to ID if no MAC (shouldn't happen)
-	return n.Interface + ":" + n.ID
+	// Fallback to device ID
+	if n.ID != "" {
+		return n.Interface + ":" + strings.ToLower(n.ID)
+	}
+	return n.Interface + ":unknown"
 }
 
 // UpdateProtocol updates the protocol field based on what we've seen
