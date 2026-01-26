@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -16,12 +17,14 @@ import (
 type ConfigField int
 
 const (
-	FieldSystemName ConfigField = iota
+	FieldChangeInterface ConfigField = iota
+	FieldSystemName
 	FieldSystemDescription
 	FieldCDPListen
 	FieldLLDPListen
 	FieldCDPBroadcast
 	FieldLLDPBroadcast
+	FieldBroadcastOnStartup
 	FieldInterval
 	FieldTTL
 	FieldCapRouter
@@ -44,13 +47,21 @@ type ConfigMenuModel struct {
 	ttlInput        textinput.Model
 
 	// Toggle states (mirrors config but for local editing)
-	cdpListen     bool
-	lldpListen    bool
-	cdpBroadcast  bool
-	lldpBroadcast bool
-	capRouter     bool
-	capBridge     bool
-	capStation    bool
+	cdpListen          bool
+	lldpListen         bool
+	cdpBroadcast       bool
+	lldpBroadcast      bool
+	broadcastOnStartup bool
+	capRouter          bool
+	capBridge          bool
+	capStation         bool
+
+	// Track original listen settings to detect changes
+	originalCDPListen  bool
+	originalLLDPListen bool
+
+	// Resolved hostname (for display when SystemName is empty)
+	resolvedHostname string
 
 	width  int
 	height int
@@ -59,9 +70,19 @@ type ConfigMenuModel struct {
 
 // NewConfigMenu creates a new config menu model
 func NewConfigMenu(cfg *config.Config) ConfigMenuModel {
+	// Resolve the actual hostname that will be used
+	resolvedHostname := cfg.SystemName
+	if resolvedHostname == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			resolvedHostname = hostname
+		} else {
+			resolvedHostname = "nbor"
+		}
+	}
+
 	// Create text inputs with minimal styling
 	systemNameInput := textinput.New()
-	systemNameInput.Placeholder = "hostname"
+	systemNameInput.Placeholder = resolvedHostname // Show actual hostname as placeholder
 	systemNameInput.CharLimit = 64
 	systemNameInput.Width = 30
 	systemNameInput.SetValue(cfg.SystemName)
@@ -100,24 +121,28 @@ func NewConfigMenu(cfg *config.Config) ConfigMenuModel {
 	}
 
 	m := ConfigMenuModel{
-		focusIndex:      0,
-		config:          cfg,
-		systemNameInput: systemNameInput,
-		systemDescInput: systemDescInput,
-		intervalInput:   intervalInput,
-		ttlInput:        ttlInput,
-		cdpListen:       cfg.CDPListen,
-		lldpListen:      cfg.LLDPListen,
-		cdpBroadcast:    cfg.CDPBroadcast,
-		lldpBroadcast:   cfg.LLDPBroadcast,
-		capRouter:       capRouter,
-		capBridge:       capBridge,
-		capStation:      capStation,
-		styles:          DefaultStyles,
+		focusIndex:         0,
+		config:             cfg,
+		systemNameInput:    systemNameInput,
+		systemDescInput:    systemDescInput,
+		intervalInput:      intervalInput,
+		ttlInput:           ttlInput,
+		cdpListen:          cfg.CDPListen,
+		lldpListen:         cfg.LLDPListen,
+		cdpBroadcast:       cfg.CDPBroadcast,
+		lldpBroadcast:      cfg.LLDPBroadcast,
+		broadcastOnStartup: cfg.BroadcastOnStartup,
+		capRouter:          capRouter,
+		capBridge:          capBridge,
+		capStation:         capStation,
+		originalCDPListen:  cfg.CDPListen,
+		originalLLDPListen: cfg.LLDPListen,
+		resolvedHostname:   resolvedHostname,
+		styles:             DefaultStyles,
 	}
 
-	// Focus first input
-	m.systemNameInput.Focus()
+	// Focus first field (change interface button)
+	// No text input focused initially
 
 	return m
 }
@@ -166,11 +191,15 @@ var configMenuKeys = configMenuKeyMap{
 
 // ConfigSavedMsg is sent when config is saved
 type ConfigSavedMsg struct {
-	Config *config.Config
+	Config             *config.Config
+	ListenSettingsChanged bool // True if CDP/LLDP listen settings changed (need new log file)
 }
 
 // ConfigCancelledMsg is sent when config editing is cancelled
 type ConfigCancelledMsg struct{}
+
+// ChangeInterfaceMsg is sent when user wants to change the interface
+type ChangeInterfaceMsg struct{}
 
 // Update handles messages for the config menu
 func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -208,15 +237,13 @@ func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle down arrow - navigates except when in text input
+		// Handle down arrow - always navigates (single-line text inputs don't need down arrow)
 		if key.Matches(msg, configMenuKeys.Down) {
-			if !m.isTextInputField() {
-				m.focusIndex++
-				if m.focusIndex >= int(FieldCount) {
-					m.focusIndex = 0
-				}
-				m.updateFocus()
+			m.focusIndex++
+			if m.focusIndex >= int(FieldCount) {
+				m.focusIndex = 0
 			}
+			m.updateFocus()
 			return m, nil
 		}
 
@@ -225,6 +252,10 @@ func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.isToggleField() {
 				m.toggleCurrentField()
 				return m, nil
+			} else if ConfigField(m.focusIndex) == FieldChangeInterface {
+				return m, func() tea.Msg {
+					return ChangeInterfaceMsg{}
+				}
 			} else if ConfigField(m.focusIndex) == FieldSave {
 				return m.saveConfig()
 			} else if ConfigField(m.focusIndex) == FieldCancel {
@@ -271,7 +302,7 @@ func (m ConfigMenuModel) isTextInputField() bool {
 func (m ConfigMenuModel) isToggleField() bool {
 	switch ConfigField(m.focusIndex) {
 	case FieldCDPListen, FieldLLDPListen, FieldCDPBroadcast, FieldLLDPBroadcast,
-		FieldCapRouter, FieldCapBridge, FieldCapStation:
+		FieldBroadcastOnStartup, FieldCapRouter, FieldCapBridge, FieldCapStation:
 		return true
 	}
 	return false
@@ -288,6 +319,8 @@ func (m *ConfigMenuModel) toggleCurrentField() {
 		m.cdpBroadcast = !m.cdpBroadcast
 	case FieldLLDPBroadcast:
 		m.lldpBroadcast = !m.lldpBroadcast
+	case FieldBroadcastOnStartup:
+		m.broadcastOnStartup = !m.broadcastOnStartup
 	case FieldCapRouter:
 		m.capRouter = !m.capRouter
 	case FieldCapBridge:
@@ -351,15 +384,19 @@ func (m ConfigMenuModel) saveConfig() (tea.Model, tea.Cmd) {
 	m.config.LLDPListen = m.lldpListen
 	m.config.CDPBroadcast = m.cdpBroadcast
 	m.config.LLDPBroadcast = m.lldpBroadcast
+	m.config.BroadcastOnStartup = m.broadcastOnStartup
 	m.config.AdvertiseInterval = interval
 	m.config.TTL = ttl
 	m.config.Capabilities = caps
+
+	// Check if listen settings changed (need new log file)
+	listenChanged := m.cdpListen != m.originalCDPListen || m.lldpListen != m.originalLLDPListen
 
 	// Save to file
 	_ = config.Save(*m.config)
 
 	return m, func() tea.Msg {
-		return ConfigSavedMsg{Config: m.config}
+		return ConfigSavedMsg{Config: m.config, ListenSettingsChanged: listenChanged}
 	}
 }
 
@@ -439,6 +476,19 @@ func (m ConfigMenuModel) renderContent() string {
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════
+	// Interface Selection
+	// ═══════════════════════════════════════════════════════════
+	focused := ConfigField(m.focusIndex) == FieldChangeInterface
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("[Change Interface]"))
+	} else {
+		b.WriteString(labelStyle.Render("[Change Interface]"))
+	}
+	b.WriteString("\n\n")
+
+	// ═══════════════════════════════════════════════════════════
 	// System Identity
 	// ═══════════════════════════════════════════════════════════
 	b.WriteString("  ")
@@ -446,7 +496,7 @@ func (m ConfigMenuModel) renderContent() string {
 	b.WriteString("\n\n")
 
 	// System Name
-	focused := ConfigField(m.focusIndex) == FieldSystemName
+	focused = ConfigField(m.focusIndex) == FieldSystemName
 	b.WriteString("  ")
 	b.WriteString(cursor(focused))
 	if focused {
@@ -532,6 +582,19 @@ func (m ConfigMenuModel) renderContent() string {
 		b.WriteString(focusedStyle.Render("LLDP"))
 	} else {
 		b.WriteString(labelStyle.Render("LLDP"))
+	}
+	b.WriteString("\n")
+
+	// Broadcast on Startup
+	focused = ConfigField(m.focusIndex) == FieldBroadcastOnStartup
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	b.WriteString(checkbox(m.broadcastOnStartup, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("Start on launch"))
+	} else {
+		b.WriteString(labelStyle.Render("Start on launch"))
 	}
 	b.WriteString("\n\n")
 

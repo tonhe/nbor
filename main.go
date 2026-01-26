@@ -38,6 +38,11 @@ func init() {
 // Global channel for interface selection (needed because bubbletea copies the model)
 var selectedInterfaceChan = make(chan types.InterfaceInfo, 1)
 
+// Global channels for TUI-to-main communication
+var restartLogChan = make(chan struct{}, 1)
+var restartCaptureChan = make(chan struct{}, 1)
+var broadcastToggleChan = make(chan bool, 1)
+
 // cliOptions holds parsed command-line arguments
 type cliOptions struct {
 	themeName         string
@@ -628,9 +633,9 @@ func main() {
 	// If interface is preselected, start at interface picker, otherwise show main menu
 	var app tui.AppModel
 	if preselectedInterface != nil {
-		app = tui.NewAppAtInterfacePicker(interfaces, store, &cfg, selectedInterfaceChan)
+		app = tui.NewAppAtInterfacePicker(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan)
 	} else {
-		app = tui.NewApp(interfaces, store, &cfg, selectedInterfaceChan)
+		app = tui.NewApp(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan)
 	}
 
 	// Create program with options
@@ -705,8 +710,8 @@ func main() {
 		bc := broadcast.NewBroadcaster(handle, &cfg, &ifaceInfo)
 		broadcaster = bc
 
-		// Start broadcaster if broadcasting is enabled
-		if cfg.CDPBroadcast || cfg.LLDPBroadcast {
+		// Start broadcaster only if BroadcastOnStartup is enabled AND a protocol is configured
+		if cfg.BroadcastOnStartup && (cfg.CDPBroadcast || cfg.LLDPBroadcast) {
 			bc.Start()
 		}
 
@@ -735,24 +740,44 @@ func main() {
 		// Start capturing
 		packets := cap.Start()
 
-		// Process packets
-		processPackets(packets, store, ifaceInfo.Name)
+		// Process packets (pass local MAC to filter out own broadcasts)
+		localMAC := ""
+		if ifaceInfo.MAC != nil {
+			localMAC = ifaceInfo.MAC.String()
+		}
+		processPackets(packets, store, ifaceInfo.Name, localMAC)
 	}()
 
-	// Goroutine to handle broadcast toggle messages
+	// Goroutine to handle broadcast toggle messages from TUI
 	go func() {
-		for {
-			// This would need a channel from TUI, but for now broadcasting
-			// is controlled via the config and 'b' key toggle in neighbors.go
-			// The ToggleBroadcastMsg is handled in the TUI and we can poll
-			time.Sleep(100 * time.Millisecond)
+		for enabled := range broadcastToggleChan {
 			if broadcaster != nil {
-				shouldRun := cfg.CDPBroadcast || cfg.LLDPBroadcast
-				if shouldRun && !broadcaster.IsRunning() {
+				if enabled {
 					broadcaster.Start()
-				} else if !shouldRun && broadcaster.IsRunning() {
+				} else {
 					broadcaster.Stop()
 				}
+			}
+		}
+	}()
+
+	// Goroutine to handle log restart requests
+	go func() {
+		for range restartLogChan {
+			if csvLogger != nil {
+				// Close old log file
+				csvLogger.Close()
+
+				// Create new log file
+				newLogger, err := logger.NewCSVLogger()
+				if err != nil {
+					// Log error but continue with old logger
+					continue
+				}
+				csvLogger = newLogger
+
+				// Notify TUI of new log path
+				p.Send(tui.LogRestartedMsg{LogPath: csvLogger.Filepath()})
 			}
 		}
 	}()
@@ -767,6 +792,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if we should restart (interface change requested)
+	select {
+	case <-restartCaptureChan:
+		// Clean up current session
+		cleanupAll(capturer, csvLogger, broadcaster)
+		if pcapHandle != nil {
+			pcapHandle.Close()
+		}
+		// Re-exec the program to restart fresh
+		exe, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error restarting: %v\n", err)
+			os.Exit(1)
+		}
+		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+			fmt.Fprintf(os.Stderr, "Error restarting: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		// Normal exit
+	}
+
 	// Clean up on exit
 	cleanupAll(capturer, csvLogger, broadcaster)
 	if pcapHandle != nil {
@@ -775,8 +822,16 @@ func main() {
 }
 
 // processPackets processes incoming packets and updates the store
-func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, ifaceName string) {
+// localMAC is used to filter out our own broadcast packets
+func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, ifaceName string, localMAC string) {
 	for packet := range packets {
+		// Filter out our own broadcasts by checking source MAC
+		srcMAC := capture.GetSourceMAC(packet)
+		if srcMAC != nil && srcMAC.String() == localMAC {
+			// This is our own broadcast, skip it
+			continue
+		}
+
 		var neighbor *types.Neighbor
 		var err error
 

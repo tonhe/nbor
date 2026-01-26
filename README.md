@@ -20,7 +20,8 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
   - Last seen timestamp
 - **Visual Alerts**: New neighbors are highlighted and trigger a terminal bell
 - **Stale Detection**: Neighbors not seen for 3-4 minutes are grayed out
-- **CSV Logging**: All discoveries are logged to a timestamped CSV file
+- **CSV Logging**: All discoveries are logged to a timestamped CSV file (new log on listen setting changes)
+- **Self-filtering**: Own broadcasts are automatically filtered from the neighbor list
 - **20 Built-in Themes**: Solarized, Gruvbox, Dracula, Nord, Tokyo Night, Catppuccin, and more
 - **Configuration File**: Persistent settings with XDG support on Linux/macOS and %APPDATA% on Windows
 
@@ -114,6 +115,7 @@ Broadcasting Options:
   --lldp-broadcast        Enable LLDP broadcasting
   --no-lldp-broadcast     Disable LLDP broadcasting (default)
   --broadcast             Enable both CDP and LLDP broadcasting
+  --broadcast-on-startup  Start broadcasting immediately (default: off)
   --interval <seconds>    Advertise interval (default: 5)
   --ttl <seconds>         TTL/hold time (default: 20)
 
@@ -191,12 +193,16 @@ The footer shows the current broadcast status (`TX` when broadcasting, `--` when
 ### Configuration Menu
 
 Press `c` from the capture view to open the configuration menu, which allows you to adjust:
+- **Change Interface**: Return to the interface selection screen
 - **System Identity**: System name and description (used when broadcasting)
-- **Listening**: Enable/disable CDP and LLDP listening
+- **Listening**: Enable/disable CDP and LLDP listening (changes trigger a new log file)
 - **Broadcasting**: Enable/disable CDP and LLDP broadcasting, set interval and TTL
+- **Broadcast on Startup**: Automatically start broadcasting when the application starts
 - **Capabilities**: Choose what device type to advertise (router, bridge, station)
 
 Navigate with arrow keys, toggle options with Space/Enter, and press Ctrl+S to save or Esc to cancel.
+
+**Note:** The `b` key toggles broadcasting on/off at runtime without changing your saved configuration. This allows quick enabling/disabling without modifying your persistent settings.
 
 ## CSV Log Files
 
@@ -292,6 +298,7 @@ lldp_listen = true
 # Broadcasting settings
 cdp_broadcast = false
 lldp_broadcast = false
+broadcast_on_startup = false  # If true, start broadcasting automatically
 advertise_interval = 5     # Seconds between broadcasts
 ttl = 20                   # Time-to-live / hold time in seconds
 

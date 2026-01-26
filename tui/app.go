@@ -32,28 +32,39 @@ type AppModel struct {
 
 	// Channel for sending selected interface back to main
 	selectChan chan<- types.InterfaceInfo
+
+	// Channels for signaling main goroutine
+	restartLogChan      chan<- struct{}
+	restartCaptureChan  chan<- struct{}
+	broadcastToggleChan chan<- bool
 }
 
 // NewApp creates a new application model (starts at interface picker)
-func NewApp(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo) AppModel {
+func NewApp(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool) AppModel {
 	return AppModel{
-		state:      StateSelectInterface,
-		picker:     NewInterfacePicker(interfaces),
-		store:      store,
-		config:     cfg,
-		selectChan: selectChan,
+		state:               StateSelectInterface,
+		picker:              NewInterfacePicker(interfaces),
+		store:               store,
+		config:              cfg,
+		selectChan:          selectChan,
+		restartLogChan:      restartLogChan,
+		restartCaptureChan:  restartCaptureChan,
+		broadcastToggleChan: broadcastToggleChan,
 	}
 }
 
 // NewAppAtInterfacePicker creates a new application model starting at interface picker
 // Used when interface is specified via CLI
-func NewAppAtInterfacePicker(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo) AppModel {
+func NewAppAtInterfacePicker(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool) AppModel {
 	return AppModel{
-		state:      StateSelectInterface,
-		picker:     NewInterfacePicker(interfaces),
-		store:      store,
-		config:     cfg,
-		selectChan: selectChan,
+		state:               StateSelectInterface,
+		picker:              NewInterfacePicker(interfaces),
+		store:               store,
+		config:              cfg,
+		selectChan:          selectChan,
+		restartLogChan:      restartLogChan,
+		restartCaptureChan:  restartCaptureChan,
+		broadcastToggleChan: broadcastToggleChan,
 	}
 }
 
@@ -84,6 +95,17 @@ type ErrorMsg struct {
 type StartCaptureMsg struct {
 	Interface types.InterfaceInfo
 	LogPath   string
+}
+
+// RestartLogMsg signals that a new log file should be started
+type RestartLogMsg struct{}
+
+// RestartCaptureMsg signals that capture should be restarted (interface change)
+type RestartCaptureMsg struct{}
+
+// LogRestartedMsg is sent when a new log file has been created
+type LogRestartedMsg struct {
+	LogPath string
 }
 
 // Update handles messages for the application
@@ -126,12 +148,45 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.neighbors.config = m.config
 		m.neighbors.broadcasting = m.config.CDPBroadcast || m.config.LLDPBroadcast
 		m.state = StateCapturing
+
+		// If listen settings changed, signal that a new log file is needed
+		if msg.ListenSettingsChanged && m.restartLogChan != nil {
+			select {
+			case m.restartLogChan <- struct{}{}:
+			default:
+			}
+		}
 		return m, m.neighbors.Init()
 
 	case ConfigCancelledMsg:
 		// Config was cancelled, return to capturing
 		m.state = StateCapturing
 		return m, m.neighbors.Init()
+
+	case ChangeInterfaceMsg:
+		// User wants to change interface - signal main to restart
+		if m.restartCaptureChan != nil {
+			select {
+			case m.restartCaptureChan <- struct{}{}:
+			default:
+			}
+		}
+		return m, tea.Quit
+
+	case LogRestartedMsg:
+		// Update the log path in the neighbors view
+		m.neighbors.logPath = msg.LogPath
+		return m, nil
+
+	case ToggleBroadcastMsg:
+		// Forward broadcast toggle to main goroutine
+		if m.broadcastToggleChan != nil {
+			select {
+			case m.broadcastToggleChan <- msg.Enabled:
+			default:
+			}
+		}
+		return m, nil
 
 	case InterfaceSelectedMsg:
 		// Interface was selected, send to channel

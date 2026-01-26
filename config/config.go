@@ -33,6 +33,10 @@ type Config struct {
 	// LLDPBroadcast enables broadcasting LLDP packets
 	LLDPBroadcast bool `toml:"lldp_broadcast"`
 
+	// BroadcastOnStartup enables broadcasting immediately when the application starts
+	// If false, broadcasting must be manually enabled with the 'b' key
+	BroadcastOnStartup bool `toml:"broadcast_on_startup"`
+
 	// AdvertiseInterval is the interval between broadcast packets in seconds
 	AdvertiseInterval int `toml:"advertise_interval"`
 
@@ -46,16 +50,17 @@ type Config struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	return Config{
-		Theme:             "solarized-dark",
-		SystemName:        "", // Empty means use hostname
-		SystemDescription: "", // Empty means use default "nbor vX.Y.Z"
-		CDPListen:         true,
-		CDPBroadcast:      false,
-		LLDPListen:        true,
-		LLDPBroadcast:     false,
-		AdvertiseInterval: 5,
-		TTL:               20,
-		Capabilities:      []string{"station"},
+		Theme:              "solarized-dark",
+		SystemName:         "", // Empty means use hostname
+		SystemDescription:  "", // Empty means use default "nbor vX.Y.Z"
+		CDPListen:          true,
+		CDPBroadcast:       false,
+		LLDPListen:         true,
+		LLDPBroadcast:      false,
+		BroadcastOnStartup: false,
+		AdvertiseInterval:  5,
+		TTL:                20,
+		Capabilities:       []string{"station"},
 	}
 }
 
@@ -187,6 +192,8 @@ func Save(cfg Config) error {
 		"# Protocol Broadcasting",
 		fmt.Sprintf("cdp_broadcast = %t", cfg.CDPBroadcast),
 		fmt.Sprintf("lldp_broadcast = %t", cfg.LLDPBroadcast),
+		"# broadcast_on_startup controls whether broadcasting starts automatically",
+		fmt.Sprintf("broadcast_on_startup = %t", cfg.BroadcastOnStartup),
 		"",
 		"# Broadcasting Settings",
 		"# advertise_interval is the time between broadcasts in seconds",

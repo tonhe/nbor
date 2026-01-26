@@ -41,7 +41,8 @@ type NeighborTableModel struct {
 // NewNeighborTable creates a new neighbor table model
 func NewNeighborTable(store *types.NeighborStore, ifaceInfo types.InterfaceInfo, logPath string, cfg *config.Config) NeighborTableModel {
 	// Determine initial broadcast state from config
-	broadcasting := cfg.CDPBroadcast || cfg.LLDPBroadcast
+	// Broadcasting only starts if BroadcastOnStartup is true AND a protocol is configured
+	broadcasting := cfg.BroadcastOnStartup && (cfg.CDPBroadcast || cfg.LLDPBroadcast)
 
 	return NeighborTableModel{
 		store:        store,
@@ -128,11 +129,8 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 			// Force a screen clear/redraw
 			return m, tea.ClearScreen
 		case key.Matches(msg, neighborKeys.Broadcast):
-			// Toggle broadcasting
+			// Toggle broadcasting on/off (runtime only, doesn't change protocol config)
 			m.broadcasting = !m.broadcasting
-			// Update config to match
-			m.config.CDPBroadcast = m.broadcasting
-			m.config.LLDPBroadcast = m.broadcasting
 			// Send message to main to start/stop broadcaster
 			return m, func() tea.Msg {
 				return ToggleBroadcastMsg{Enabled: m.broadcasting}
