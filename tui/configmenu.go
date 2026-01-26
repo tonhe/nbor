@@ -1,0 +1,703 @@
+package tui
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"nbor/config"
+	"nbor/version"
+)
+
+// ConfigField represents a field in the config menu
+type ConfigField int
+
+const (
+	FieldSystemName ConfigField = iota
+	FieldSystemDescription
+	FieldCDPListen
+	FieldLLDPListen
+	FieldCDPBroadcast
+	FieldLLDPBroadcast
+	FieldInterval
+	FieldTTL
+	FieldCapRouter
+	FieldCapBridge
+	FieldCapStation
+	FieldSave
+	FieldCancel
+	FieldCount // Used to track total number of fields
+)
+
+// ConfigMenuModel is the model for the configuration menu
+type ConfigMenuModel struct {
+	focusIndex int
+	config     *config.Config
+
+	// Text inputs
+	systemNameInput textinput.Model
+	systemDescInput textinput.Model
+	intervalInput   textinput.Model
+	ttlInput        textinput.Model
+
+	// Toggle states (mirrors config but for local editing)
+	cdpListen     bool
+	lldpListen    bool
+	cdpBroadcast  bool
+	lldpBroadcast bool
+	capRouter     bool
+	capBridge     bool
+	capStation    bool
+
+	width  int
+	height int
+	styles Styles
+}
+
+// NewConfigMenu creates a new config menu model
+func NewConfigMenu(cfg *config.Config) ConfigMenuModel {
+	// Create text inputs with minimal styling
+	systemNameInput := textinput.New()
+	systemNameInput.Placeholder = "hostname"
+	systemNameInput.CharLimit = 64
+	systemNameInput.Width = 30
+	systemNameInput.SetValue(cfg.SystemName)
+
+	systemDescInput := textinput.New()
+	systemDescInput.Placeholder = "nbor network tool"
+	systemDescInput.CharLimit = 128
+	systemDescInput.Width = 30
+	systemDescInput.SetValue(cfg.SystemDescription)
+
+	intervalInput := textinput.New()
+	intervalInput.Placeholder = "5"
+	intervalInput.CharLimit = 4
+	intervalInput.Width = 6
+	intervalInput.SetValue(strconv.Itoa(cfg.AdvertiseInterval))
+
+	ttlInput := textinput.New()
+	ttlInput.Placeholder = "20"
+	ttlInput.CharLimit = 5
+	ttlInput.Width = 6
+	ttlInput.SetValue(strconv.Itoa(cfg.TTL))
+
+	// Parse capabilities
+	capRouter := false
+	capBridge := false
+	capStation := false
+	for _, cap := range cfg.Capabilities {
+		switch strings.ToLower(cap) {
+		case "router":
+			capRouter = true
+		case "bridge":
+			capBridge = true
+		case "station":
+			capStation = true
+		}
+	}
+
+	m := ConfigMenuModel{
+		focusIndex:      0,
+		config:          cfg,
+		systemNameInput: systemNameInput,
+		systemDescInput: systemDescInput,
+		intervalInput:   intervalInput,
+		ttlInput:        ttlInput,
+		cdpListen:       cfg.CDPListen,
+		lldpListen:      cfg.LLDPListen,
+		cdpBroadcast:    cfg.CDPBroadcast,
+		lldpBroadcast:   cfg.LLDPBroadcast,
+		capRouter:       capRouter,
+		capBridge:       capBridge,
+		capStation:      capStation,
+		styles:          DefaultStyles,
+	}
+
+	// Focus first input
+	m.systemNameInput.Focus()
+
+	return m
+}
+
+// Init initializes the config menu
+func (m ConfigMenuModel) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+// configMenuKeyMap defines the key bindings for the config menu
+type configMenuKeyMap struct {
+	Up     key.Binding
+	Down   key.Binding
+	Toggle key.Binding
+	Save   key.Binding
+	Cancel key.Binding
+	Tab    key.Binding
+}
+
+var configMenuKeys = configMenuKeyMap{
+	Up: key.NewBinding(
+		key.WithKeys("up"),
+		key.WithHelp("↑", "up"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down"),
+		key.WithHelp("↓", "down"),
+	),
+	Toggle: key.NewBinding(
+		key.WithKeys(" ", "enter"),
+		key.WithHelp("space/enter", "toggle"),
+	),
+	Save: key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "save"),
+	),
+	Cancel: key.NewBinding(
+		key.WithKeys("escape"),
+		key.WithHelp("esc", "cancel"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "next field"),
+	),
+}
+
+// ConfigSavedMsg is sent when config is saved
+type ConfigSavedMsg struct {
+	Config *config.Config
+}
+
+// ConfigCancelledMsg is sent when config editing is cancelled
+type ConfigCancelledMsg struct{}
+
+// Update handles messages for the config menu
+func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, configMenuKeys.Cancel):
+			return m, func() tea.Msg {
+				return ConfigCancelledMsg{}
+			}
+
+		case key.Matches(msg, configMenuKeys.Save):
+			return m.saveConfig()
+
+		case key.Matches(msg, configMenuKeys.Up):
+			m.focusIndex--
+			if m.focusIndex < 0 {
+				m.focusIndex = int(FieldCount) - 1
+			}
+			m.updateFocus()
+
+		case key.Matches(msg, configMenuKeys.Down), key.Matches(msg, configMenuKeys.Tab):
+			// For text inputs, only move on tab, not down arrow
+			if m.isTextInputField() && msg.String() != "tab" {
+				break
+			}
+			m.focusIndex++
+			if m.focusIndex >= int(FieldCount) {
+				m.focusIndex = 0
+			}
+			m.updateFocus()
+
+		case key.Matches(msg, configMenuKeys.Toggle):
+			if m.isToggleField() {
+				m.toggleCurrentField()
+			} else if ConfigField(m.focusIndex) == FieldSave {
+				return m.saveConfig()
+			} else if ConfigField(m.focusIndex) == FieldCancel {
+				return m, func() tea.Msg {
+					return ConfigCancelledMsg{}
+				}
+			}
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+	}
+
+	// Update text inputs
+	if m.isTextInputField() {
+		var cmd tea.Cmd
+		switch ConfigField(m.focusIndex) {
+		case FieldSystemName:
+			m.systemNameInput, cmd = m.systemNameInput.Update(msg)
+		case FieldSystemDescription:
+			m.systemDescInput, cmd = m.systemDescInput.Update(msg)
+		case FieldInterval:
+			m.intervalInput, cmd = m.intervalInput.Update(msg)
+		case FieldTTL:
+			m.ttlInput, cmd = m.ttlInput.Update(msg)
+		}
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// isTextInputField returns true if current field is a text input
+func (m ConfigMenuModel) isTextInputField() bool {
+	switch ConfigField(m.focusIndex) {
+	case FieldSystemName, FieldSystemDescription, FieldInterval, FieldTTL:
+		return true
+	}
+	return false
+}
+
+// isToggleField returns true if current field is a toggle
+func (m ConfigMenuModel) isToggleField() bool {
+	switch ConfigField(m.focusIndex) {
+	case FieldCDPListen, FieldLLDPListen, FieldCDPBroadcast, FieldLLDPBroadcast,
+		FieldCapRouter, FieldCapBridge, FieldCapStation:
+		return true
+	}
+	return false
+}
+
+// toggleCurrentField toggles the current field's value
+func (m *ConfigMenuModel) toggleCurrentField() {
+	switch ConfigField(m.focusIndex) {
+	case FieldCDPListen:
+		m.cdpListen = !m.cdpListen
+	case FieldLLDPListen:
+		m.lldpListen = !m.lldpListen
+	case FieldCDPBroadcast:
+		m.cdpBroadcast = !m.cdpBroadcast
+	case FieldLLDPBroadcast:
+		m.lldpBroadcast = !m.lldpBroadcast
+	case FieldCapRouter:
+		m.capRouter = !m.capRouter
+	case FieldCapBridge:
+		m.capBridge = !m.capBridge
+	case FieldCapStation:
+		m.capStation = !m.capStation
+	}
+}
+
+// updateFocus updates which input is focused
+func (m *ConfigMenuModel) updateFocus() {
+	m.systemNameInput.Blur()
+	m.systemDescInput.Blur()
+	m.intervalInput.Blur()
+	m.ttlInput.Blur()
+
+	switch ConfigField(m.focusIndex) {
+	case FieldSystemName:
+		m.systemNameInput.Focus()
+	case FieldSystemDescription:
+		m.systemDescInput.Focus()
+	case FieldInterval:
+		m.intervalInput.Focus()
+	case FieldTTL:
+		m.ttlInput.Focus()
+	}
+}
+
+// saveConfig saves the configuration and returns a message
+func (m ConfigMenuModel) saveConfig() (tea.Model, tea.Cmd) {
+	// Build capabilities list
+	var caps []string
+	if m.capRouter {
+		caps = append(caps, "router")
+	}
+	if m.capBridge {
+		caps = append(caps, "bridge")
+	}
+	if m.capStation {
+		caps = append(caps, "station")
+	}
+	if len(caps) == 0 {
+		caps = []string{"station"}
+	}
+
+	// Parse numeric values
+	interval, err := strconv.Atoi(m.intervalInput.Value())
+	if err != nil || interval <= 0 {
+		interval = 5
+	}
+
+	ttl, err := strconv.Atoi(m.ttlInput.Value())
+	if err != nil || ttl <= 0 {
+		ttl = 20
+	}
+
+	// Update config
+	m.config.SystemName = m.systemNameInput.Value()
+	m.config.SystemDescription = m.systemDescInput.Value()
+	m.config.CDPListen = m.cdpListen
+	m.config.LLDPListen = m.lldpListen
+	m.config.CDPBroadcast = m.cdpBroadcast
+	m.config.LLDPBroadcast = m.lldpBroadcast
+	m.config.AdvertiseInterval = interval
+	m.config.TTL = ttl
+	m.config.Capabilities = caps
+
+	// Save to file
+	_ = config.Save(*m.config)
+
+	return m, func() tea.Msg {
+		return ConfigSavedMsg{Config: m.config}
+	}
+}
+
+// View renders the config menu
+func (m ConfigMenuModel) View() string {
+	header := m.renderHeader()
+	content := m.renderContent()
+	footer := m.renderFooter()
+
+	// Count lines used
+	headerLines := strings.Count(header, "\n") + 1
+	contentLines := strings.Count(content, "\n") + 1
+	footerLines := 1
+
+	usedLines := headerLines + contentLines + footerLines
+	padding := m.height - usedLines
+	if padding < 0 {
+		padding = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(content)
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("\n", padding))
+	b.WriteString(footer)
+
+	return b.String()
+}
+
+// renderHeader renders the header bar
+func (m ConfigMenuModel) renderHeader() string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	// Build the content pieces with background color
+	nameStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Background(bg).
+		Bold(true)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03).
+		Background(bg)
+	titleStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0D).
+		Background(bg).
+		Bold(true)
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+
+	left := nameStyle.Render("nbor") + spaceStyle.Render(" ") + versionStyle.Render("v"+version.Version)
+	right := titleStyle.Render("Configuration")
+
+	// Calculate gap to fill the width
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	gapWidth := m.width - leftWidth - rightWidth - 2 // -2 for padding
+	if gapWidth < 1 {
+		gapWidth = 1
+	}
+
+	// Build the full header line
+	headerLine := left + spaceStyle.Render(strings.Repeat(" ", gapWidth)) + right
+
+	// Wrap in a style that sets the full width
+	headerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(m.width)
+
+	return headerStyle.Render(headerLine)
+}
+
+// renderContent renders the form content
+func (m ConfigMenuModel) renderContent() string {
+	theme := DefaultTheme
+	var b strings.Builder
+
+	// Styles
+	sectionStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0D).
+		Bold(true)
+	labelStyle := lipgloss.NewStyle().
+		Foreground(theme.Base05)
+	focusedStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0B).
+		Bold(true)
+	dimStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03)
+	cursorStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Bold(true)
+
+	// Checkbox helper
+	checkbox := func(checked bool, focused bool) string {
+		style := labelStyle
+		if focused {
+			style = focusedStyle
+		}
+		if checked {
+			return style.Render("[x]")
+		}
+		return style.Render("[ ]")
+	}
+
+	// Cursor helper
+	cursor := func(focused bool) string {
+		if focused {
+			return cursorStyle.Render(">") + " "
+		}
+		return "  "
+	}
+
+	b.WriteString("\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// System Identity
+	// ═══════════════════════════════════════════════════════════
+	b.WriteString("  ")
+	b.WriteString(sectionStyle.Render("System Identity"))
+	b.WriteString("\n\n")
+
+	// System Name
+	focused := ConfigField(m.focusIndex) == FieldSystemName
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("System Name"))
+	} else {
+		b.WriteString(labelStyle.Render("System Name"))
+	}
+	b.WriteString("       ")
+	b.WriteString(m.systemNameInput.View())
+	b.WriteString("\n")
+
+	// Description
+	focused = ConfigField(m.focusIndex) == FieldSystemDescription
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("Description"))
+	} else {
+		b.WriteString(labelStyle.Render("Description"))
+	}
+	b.WriteString("       ")
+	b.WriteString(m.systemDescInput.View())
+	b.WriteString("\n\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// Listening
+	// ═══════════════════════════════════════════════════════════
+	b.WriteString("  ")
+	b.WriteString(sectionStyle.Render("Listening"))
+	b.WriteString("\n\n")
+
+	// CDP Listen
+	focused = ConfigField(m.focusIndex) == FieldCDPListen
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	b.WriteString(checkbox(m.cdpListen, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("CDP"))
+	} else {
+		b.WriteString(labelStyle.Render("CDP"))
+	}
+
+	b.WriteString("        ")
+
+	// LLDP Listen
+	focused = ConfigField(m.focusIndex) == FieldLLDPListen
+	b.WriteString(checkbox(m.lldpListen, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("LLDP"))
+	} else {
+		b.WriteString(labelStyle.Render("LLDP"))
+	}
+	b.WriteString("\n\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// Broadcasting
+	// ═══════════════════════════════════════════════════════════
+	b.WriteString("  ")
+	b.WriteString(sectionStyle.Render("Broadcasting"))
+	b.WriteString("\n\n")
+
+	// CDP Broadcast
+	focused = ConfigField(m.focusIndex) == FieldCDPBroadcast
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	b.WriteString(checkbox(m.cdpBroadcast, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("CDP"))
+	} else {
+		b.WriteString(labelStyle.Render("CDP"))
+	}
+
+	b.WriteString("        ")
+
+	// LLDP Broadcast
+	focused = ConfigField(m.focusIndex) == FieldLLDPBroadcast
+	b.WriteString(checkbox(m.lldpBroadcast, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("LLDP"))
+	} else {
+		b.WriteString(labelStyle.Render("LLDP"))
+	}
+	b.WriteString("\n\n")
+
+	// Interval
+	focused = ConfigField(m.focusIndex) == FieldInterval
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("Interval"))
+	} else {
+		b.WriteString(labelStyle.Render("Interval"))
+	}
+	b.WriteString("          ")
+	b.WriteString(m.intervalInput.View())
+	b.WriteString(dimStyle.Render(" seconds"))
+	b.WriteString("\n")
+
+	// TTL
+	focused = ConfigField(m.focusIndex) == FieldTTL
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("TTL (Hold Time)"))
+	} else {
+		b.WriteString(labelStyle.Render("TTL (Hold Time)"))
+	}
+	b.WriteString("   ")
+	b.WriteString(m.ttlInput.View())
+	b.WriteString(dimStyle.Render(" seconds"))
+	b.WriteString("\n\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// Capabilities
+	// ═══════════════════════════════════════════════════════════
+	b.WriteString("  ")
+	b.WriteString(sectionStyle.Render("Capabilities (advertised)"))
+	b.WriteString("\n\n")
+
+	// Router
+	focused = ConfigField(m.focusIndex) == FieldCapRouter
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	b.WriteString(checkbox(m.capRouter, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("Router"))
+	} else {
+		b.WriteString(labelStyle.Render("Router"))
+	}
+
+	b.WriteString("     ")
+
+	// Bridge
+	focused = ConfigField(m.focusIndex) == FieldCapBridge
+	b.WriteString(checkbox(m.capBridge, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("Bridge"))
+	} else {
+		b.WriteString(labelStyle.Render("Bridge"))
+	}
+
+	b.WriteString("     ")
+
+	// Station
+	focused = ConfigField(m.focusIndex) == FieldCapStation
+	b.WriteString(checkbox(m.capStation, focused))
+	b.WriteString(" ")
+	if focused {
+		b.WriteString(focusedStyle.Render("Station"))
+	} else {
+		b.WriteString(labelStyle.Render("Station"))
+	}
+	b.WriteString("\n\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// Buttons
+	// ═══════════════════════════════════════════════════════════
+	// Save
+	focused = ConfigField(m.focusIndex) == FieldSave
+	b.WriteString("  ")
+	b.WriteString(cursor(focused))
+	if focused {
+		b.WriteString(focusedStyle.Render("[Save]"))
+	} else {
+		b.WriteString(labelStyle.Render("[Save]"))
+	}
+
+	b.WriteString("     ")
+
+	// Cancel
+	focused = ConfigField(m.focusIndex) == FieldCancel
+	if focused {
+		b.WriteString(focusedStyle.Render("[Cancel]"))
+	} else {
+		b.WriteString(labelStyle.Render("[Cancel]"))
+	}
+
+	return b.String()
+}
+
+// renderFooter renders the footer bar
+func (m ConfigMenuModel) renderFooter() string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	// All text needs background color
+	keyStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Background(bg).
+		Bold(true)
+	textStyle := lipgloss.NewStyle().
+		Foreground(theme.Base04).
+		Background(bg)
+	sepStyle := lipgloss.NewStyle().
+		Foreground(theme.Base02).
+		Background(bg)
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+
+	sep := sepStyle.Render(" │ ")
+
+	content := keyStyle.Render("↑/↓") + textStyle.Render(" navigate") + sep +
+		keyStyle.Render("space") + textStyle.Render(" toggle") + sep +
+		keyStyle.Render("tab") + textStyle.Render(" next") + sep +
+		keyStyle.Render("ctrl+s") + textStyle.Render(" save") + sep +
+		keyStyle.Render("esc") + textStyle.Render(" cancel")
+
+	// Calculate padding to fill width
+	contentWidth := lipgloss.Width(content)
+	padWidth := m.width - contentWidth - 2 // -2 for padding
+	if padWidth < 0 {
+		padWidth = 0
+	}
+
+	footerLine := content + spaceStyle.Render(strings.Repeat(" ", padWidth))
+
+	footerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(m.width)
+
+	return footerStyle.Render(footerLine)
+}
+
+// GetConfig returns the current config
+func (m *ConfigMenuModel) GetConfig() *config.Config {
+	return m.config
+}

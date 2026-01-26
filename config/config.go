@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,12 +14,48 @@ import (
 type Config struct {
 	// Theme is the slug name of the theme to use (e.g., "tokyo-night", "catppuccin-mocha")
 	Theme string `toml:"theme"`
+
+	// SystemName is the name advertised in CDP/LLDP broadcasts (defaults to hostname)
+	SystemName string `toml:"system_name"`
+
+	// SystemDescription is the description advertised in CDP/LLDP broadcasts
+	SystemDescription string `toml:"system_description"`
+
+	// CDPListen enables listening for CDP packets
+	CDPListen bool `toml:"cdp_listen"`
+
+	// CDPBroadcast enables broadcasting CDP packets
+	CDPBroadcast bool `toml:"cdp_broadcast"`
+
+	// LLDPListen enables listening for LLDP packets
+	LLDPListen bool `toml:"lldp_listen"`
+
+	// LLDPBroadcast enables broadcasting LLDP packets
+	LLDPBroadcast bool `toml:"lldp_broadcast"`
+
+	// AdvertiseInterval is the interval between broadcast packets in seconds
+	AdvertiseInterval int `toml:"advertise_interval"`
+
+	// TTL is the time-to-live for advertised information in seconds
+	TTL int `toml:"ttl"`
+
+	// Capabilities is the list of capabilities to advertise (router, bridge, station, etc.)
+	Capabilities []string `toml:"capabilities"`
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	return Config{
-		Theme: "solarized-dark",
+		Theme:             "solarized-dark",
+		SystemName:        "", // Empty means use hostname
+		SystemDescription: "", // Empty means use default "nbor vX.Y.Z"
+		CDPListen:         true,
+		CDPBroadcast:      false,
+		LLDPListen:        true,
+		LLDPBroadcast:     false,
+		AdvertiseInterval: 5,
+		TTL:               20,
+		Capabilities:      []string{"station"},
 	}
 }
 
@@ -85,8 +123,24 @@ func Load() (Config, error) {
 	}
 
 	// Fill in defaults for missing values
+	defaults := DefaultConfig()
 	if cfg.Theme == "" {
-		cfg.Theme = "solarized-dark"
+		cfg.Theme = defaults.Theme
+	}
+	// Note: SystemName and SystemDescription empty is valid (means use defaults at runtime)
+	// For bool fields, we can't distinguish between "not set" and "set to false"
+	// so we rely on the TOML decoder's behavior (missing = zero value)
+	// For new configs, the defaults will be written on first save
+
+	// Fill in missing numeric defaults (0 means not set for these)
+	if cfg.AdvertiseInterval <= 0 {
+		cfg.AdvertiseInterval = defaults.AdvertiseInterval
+	}
+	if cfg.TTL <= 0 {
+		cfg.TTL = defaults.TTL
+	}
+	if len(cfg.Capabilities) == 0 {
+		cfg.Capabilities = defaults.Capabilities
 	}
 
 	return cfg, nil
@@ -113,20 +167,57 @@ func Save(cfg Config) error {
 	}
 	defer file.Close()
 
-	// Write header comment
-	if _, err := file.WriteString("# nbor configuration\n"); err != nil {
-		return err
-	}
-	if _, err := file.WriteString("# Run `nbor --list-themes` to see available themes\n\n"); err != nil {
-		return err
-	}
-	if _, err := file.WriteString("# Theme name (use slug format with hyphens, e.g., tokyo-night, catppuccin-mocha)\n"); err != nil {
-		return err
+	// Write config with comments
+	lines := []string{
+		"# nbor configuration",
+		"# Run `nbor --list-themes` to see available themes",
+		"",
+		"# Visual theme (use slug format with hyphens, e.g., tokyo-night, catppuccin-mocha)",
+		fmt.Sprintf("theme = %q", cfg.Theme),
+		"",
+		"# System Identity",
+		"# system_name defaults to hostname if empty",
+		fmt.Sprintf("system_name = %q", cfg.SystemName),
+		fmt.Sprintf("system_description = %q", cfg.SystemDescription),
+		"",
+		"# Protocol Listening",
+		fmt.Sprintf("cdp_listen = %t", cfg.CDPListen),
+		fmt.Sprintf("lldp_listen = %t", cfg.LLDPListen),
+		"",
+		"# Protocol Broadcasting",
+		fmt.Sprintf("cdp_broadcast = %t", cfg.CDPBroadcast),
+		fmt.Sprintf("lldp_broadcast = %t", cfg.LLDPBroadcast),
+		"",
+		"# Broadcasting Settings",
+		"# advertise_interval is the time between broadcasts in seconds",
+		fmt.Sprintf("advertise_interval = %d", cfg.AdvertiseInterval),
+		"# ttl is the time-to-live for advertised information in seconds",
+		fmt.Sprintf("ttl = %d", cfg.TTL),
+		"",
+		"# Capabilities to advertise (router, bridge, station, switch, phone, etc.)",
+		fmt.Sprintf("capabilities = %s", formatStringSlice(cfg.Capabilities)),
+		"",
 	}
 
-	// Encode config as TOML
-	encoder := toml.NewEncoder(file)
-	return encoder.Encode(cfg)
+	for _, line := range lines {
+		if _, err := file.WriteString(line + "\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// formatStringSlice formats a string slice as a TOML array
+func formatStringSlice(s []string) string {
+	if len(s) == 0 {
+		return "[]"
+	}
+	quoted := make([]string, len(s))
+	for i, v := range s {
+		quoted[i] = fmt.Sprintf("%q", v)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // EnsureConfigExists creates the default config file if it doesn't exist

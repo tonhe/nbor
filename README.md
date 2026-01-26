@@ -5,7 +5,9 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
 ## Features
 
 - **Interface Selection**: Automatically filters to show only wired Ethernet interfaces
-- **Protocol Support**: Listens for both CDP and LLDP packets
+- **Protocol Support**: Listens for both CDP and LLDP packets (toggleable)
+- **Broadcasting**: Optionally broadcast CDP/LLDP frames to announce your system to the network
+- **Configuration Menu**: In-app configuration for system identity, listening, and broadcasting options
 - **Rich Neighbor Information**:
   - Switch/device hostname
   - Port ID (the port you're connected to)
@@ -88,13 +90,36 @@ sudo ./nbor
 Usage:
   nbor [options] [interface]
 
-Options:
+General Options:
   -t, --theme <name>      Use specified theme (session only)
   --list-themes           List available themes
   -l, --list-interfaces   List available network interfaces
   --list-all-interfaces   List all interfaces (including filtered)
   -v, --version           Show version
   -h, --help              Show this help
+
+Identity Options:
+  --name <string>         System name to advertise (default: hostname)
+  --description <string>  System description to advertise
+
+Listening Options:
+  --cdp-listen            Enable CDP listening (default)
+  --no-cdp-listen         Disable CDP listening
+  --lldp-listen           Enable LLDP listening (default)
+  --no-lldp-listen        Disable LLDP listening
+
+Broadcasting Options:
+  --cdp-broadcast         Enable CDP broadcasting
+  --no-cdp-broadcast      Disable CDP broadcasting (default)
+  --lldp-broadcast        Enable LLDP broadcasting
+  --no-lldp-broadcast     Disable LLDP broadcasting (default)
+  --broadcast             Enable both CDP and LLDP broadcasting
+  --interval <seconds>    Advertise interval (default: 5)
+  --ttl <seconds>         TTL/hold time (default: 20)
+
+Capability Options:
+  --capabilities <list>   Comma-separated capabilities to advertise:
+                          router, bridge, station (default: station)
 ```
 
 ### Examples
@@ -112,6 +137,16 @@ sudo ./nbor en0                     # macOS (with warning for WiFi)
 sudo ./nbor --theme dracula
 sudo ./nbor --theme tokyo-night
 sudo ./nbor -t catppuccin-mocha eth0
+
+# Start with broadcasting enabled
+sudo ./nbor --broadcast
+sudo ./nbor --broadcast --interval 10
+
+# Custom system name, LLDP only
+sudo ./nbor --name "my-workstation" --no-cdp-listen --lldp-broadcast
+
+# Advertise as a router
+sudo ./nbor --broadcast --capabilities router,station
 
 # List available interfaces
 sudo ./nbor -l
@@ -135,12 +170,33 @@ Continuing anyway...
 
 ## Interface
 
-1. On launch, select a network interface using arrow keys and press Enter
-2. The main view shows discovered neighbors in a table
-3. Hotkeys:
-   - `r` - Refresh display
-   - `↑/↓` or `j/k` - Scroll through neighbors
-   - `Ctrl+C` or `q` - Quit
+### Interface Selection
+
+On launch, select a network interface using arrow keys and press Enter.
+
+### Capture View
+
+Once capturing, the main view shows discovered neighbors in a table.
+
+**Hotkeys:**
+- `r` - Refresh display
+- `b` - Toggle broadcasting on/off
+- `c` - Open configuration menu
+- `↑/↓` or `j/k` - Scroll through neighbors
+- `Ctrl+C` or `q` - Quit
+
+**Status Bar:**
+The footer shows the current broadcast status (`TX` when broadcasting, `--` when not).
+
+### Configuration Menu
+
+Press `c` from the capture view to open the configuration menu, which allows you to adjust:
+- **System Identity**: System name and description (used when broadcasting)
+- **Listening**: Enable/disable CDP and LLDP listening
+- **Broadcasting**: Enable/disable CDP and LLDP broadcasting, set interval and TTL
+- **Capabilities**: Choose what device type to advertise (router, bridge, station)
+
+Navigate with arrow keys, toggle options with Space/Enter, and press Ctrl+S to save or Esc to cancel.
 
 ## CSV Log Files
 
@@ -158,6 +214,7 @@ The codebase is structured for maintainability and future multi-interface suppor
 ```
 nbor/
 ├── main.go           # Application entry point and CLI parsing
+├── broadcast/        # CDP/LLDP packet construction and transmission
 ├── capture/          # Packet capture with gopacket/libpcap
 ├── config/           # Configuration file loading (TOML)
 ├── logger/           # CSV logging
@@ -223,6 +280,23 @@ nbor stores settings in a TOML config file that is created automatically on firs
 ```toml
 # Theme name (use slug format with hyphens)
 theme = "tokyo-night"
+
+# System identity (used when broadcasting)
+system_name = ""           # Empty = use hostname
+system_description = ""    # Empty = "nbor network neighbor discovery tool"
+
+# Listening settings
+cdp_listen = true
+lldp_listen = true
+
+# Broadcasting settings
+cdp_broadcast = false
+lldp_broadcast = false
+advertise_interval = 5     # Seconds between broadcasts
+ttl = 20                   # Time-to-live / hold time in seconds
+
+# Capabilities to advertise (router, bridge, station)
+capabilities = ["station"]
 ```
 
 ## License

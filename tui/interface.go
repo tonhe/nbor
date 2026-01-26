@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"nbor/types"
+	"nbor/version"
 )
 
 // InterfacePickerModel is the model for the interface selection screen
@@ -145,36 +146,111 @@ func (m InterfacePickerModel) View() string {
 		return m.styles.StatusError.Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
+	header := m.renderHeader()
+	content := m.renderContent()
+	footer := m.renderFooter()
+
+	// Calculate spacing to push footer to bottom
+	headerLines := strings.Count(header, "\n") + 1
+	contentLines := strings.Count(content, "\n") + 1
+	footerLines := 1
+
+	usedLines := headerLines + contentLines + footerLines
+	remainingLines := m.height - usedLines
+	if remainingLines < 0 {
+		remainingLines = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(content)
+	b.WriteString(strings.Repeat("\n", remainingLines))
+	b.WriteString(footer)
+
+	return b.String()
+}
+
+// renderHeader renders the header bar
+func (m InterfacePickerModel) renderHeader() string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	sp := lipgloss.NewStyle().Background(bg).Render(" ")
+
+	nameStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Background(bg).
+		Bold(true)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03).
+		Background(bg)
+	leftPart := nameStyle.Render("nbor") + sp + versionStyle.Render("v"+version.Version)
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0D).
+		Background(bg).
+		Bold(true)
+	rightPart := titleStyle.Render("Select Interface")
+
+	leftLen := lipgloss.Width(leftPart)
+	rightLen := lipgloss.Width(rightPart)
+	availableWidth := m.width - 2
+	gap := availableWidth - leftLen - rightLen
+	if gap < 1 {
+		gap = 1
+	}
+
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	headerContent := leftPart + spaceStyle.Render(strings.Repeat(" ", gap)) + rightPart
+
+	headerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(m.width)
+
+	return headerStyle.Render(headerContent)
+}
+
+// renderContent renders the interface list
+func (m InterfacePickerModel) renderContent() string {
+	theme := DefaultTheme
 	var b strings.Builder
 
-	// Title
-	title := m.styles.PickerTitle.Render("Select a network interface:")
-	b.WriteString(title)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	if len(m.interfaces) == 0 {
-		b.WriteString(m.styles.StatusError.Render("No suitable Ethernet interfaces found."))
-		b.WriteString("\n\n")
-		b.WriteString(m.styles.StatusInfo.Render("Make sure you have wired network adapters available."))
+		errorStyle := lipgloss.NewStyle().Foreground(theme.Base08)
+		infoStyle := lipgloss.NewStyle().Foreground(theme.Base03)
+		b.WriteString("  ")
+		b.WriteString(errorStyle.Render("No suitable Ethernet interfaces found."))
+		b.WriteString("\n\n  ")
+		b.WriteString(infoStyle.Render("Make sure you have wired network adapters available."))
 		return b.String()
 	}
 
-	// Interface list
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0B).
+		Bold(true)
+	normalStyle := lipgloss.NewStyle().
+		Foreground(theme.Base05)
+	dimStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03)
+	cursorStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Bold(true)
+	upStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0B)
+	downStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03)
+
 	for i, iface := range m.interfaces {
-		cursor := "  "
-		style := m.styles.PickerItem
-
-		if i == m.cursor {
-			cursor = "> "
-			style = m.styles.PickerSelected
-		}
-
-		// Format interface line with colored status dot
+		// Status dot
 		var status string
 		if iface.IsUp {
-			status = m.styles.PickerUp.Render("●") // Green
+			status = upStyle.Render("●")
 		} else {
-			status = m.styles.PickerDown.Render("●") // Red/gray
+			status = downStyle.Render("●")
 		}
 
 		// Format MAC
@@ -186,35 +262,93 @@ func (m InterfacePickerModel) View() string {
 		// Format speed
 		speed := ""
 		if iface.Speed != "" {
-			speed = fmt.Sprintf(" [%s]", iface.Speed)
+			speed = fmt.Sprintf("[%s]", iface.Speed)
 		}
 
 		// Format IP addresses
 		ips := iface.FormatIPs()
 		ipDisplay := ""
 		if ips != "" {
-			ipDisplay = fmt.Sprintf(" (%s)", ips)
+			ipDisplay = fmt.Sprintf("(%s)", ips)
 		}
 
-		line := fmt.Sprintf("%s%s %s  %s%s%s",
-			cursor,
-			status,
-			iface.Name,
-			mac,
-			speed,
-			ipDisplay,
-		)
-
-		b.WriteString(style.Render(line))
+		if i == m.cursor {
+			b.WriteString("  ")
+			b.WriteString(cursorStyle.Render(">"))
+			b.WriteString(" ")
+			b.WriteString(status)
+			b.WriteString(" ")
+			b.WriteString(selectedStyle.Render(iface.Name))
+			b.WriteString("  ")
+			b.WriteString(dimStyle.Render(mac))
+			if speed != "" {
+				b.WriteString(" ")
+				b.WriteString(dimStyle.Render(speed))
+			}
+			if ipDisplay != "" {
+				b.WriteString(" ")
+				b.WriteString(dimStyle.Render(ipDisplay))
+			}
+		} else {
+			b.WriteString("    ")
+			b.WriteString(status)
+			b.WriteString(" ")
+			b.WriteString(normalStyle.Render(iface.Name))
+			b.WriteString("  ")
+			b.WriteString(dimStyle.Render(mac))
+			if speed != "" {
+				b.WriteString(" ")
+				b.WriteString(dimStyle.Render(speed))
+			}
+			if ipDisplay != "" {
+				b.WriteString(" ")
+				b.WriteString(dimStyle.Render(ipDisplay))
+			}
+		}
 		b.WriteString("\n")
 	}
 
-	// Help text
-	b.WriteString("\n")
-	helpStyle := lipgloss.NewStyle().Foreground(m.styles.Footer.GetForeground())
-	b.WriteString(helpStyle.Render("↑/↓ or j/k to navigate • enter to select • q to quit"))
-
 	return b.String()
+}
+
+// renderFooter renders the footer bar
+func (m InterfacePickerModel) renderFooter() string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Background(bg).
+		Bold(true)
+	textStyle := lipgloss.NewStyle().
+		Foreground(theme.Base04).
+		Background(bg)
+	sepStyle := lipgloss.NewStyle().
+		Foreground(theme.Base02).
+		Background(bg)
+
+	sep := sepStyle.Render(" │ ")
+
+	footerContent := keyStyle.Render("↑/↓") + textStyle.Render(" navigate") + sep +
+		keyStyle.Render("enter") + textStyle.Render(" select") + sep +
+		keyStyle.Render("q") + textStyle.Render(" quit")
+
+	contentLen := lipgloss.Width(footerContent)
+	availableWidth := m.width - 2
+	gap := availableWidth - contentLen
+	if gap < 0 {
+		gap = 0
+	}
+
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	footerContent = footerContent + spaceStyle.Render(strings.Repeat(" ", gap))
+
+	footerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(m.width)
+
+	return footerStyle.Render(footerContent)
 }
 
 // SetError sets an error to display

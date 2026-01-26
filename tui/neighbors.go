@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"nbor/config"
 	"nbor/logger"
 	"nbor/types"
 	"nbor/version"
@@ -27,22 +28,29 @@ type column struct {
 type NeighborTableModel struct {
 	store        *types.NeighborStore
 	ifaceInfo    types.InterfaceInfo
+	config       *config.Config
 	width        int
 	height       int
 	styles       Styles
 	scrollOffset int
 	flashRows    map[string]time.Time // Track rows to flash
 	logPath      string
+	broadcasting bool // Whether broadcasting is currently active
 }
 
 // NewNeighborTable creates a new neighbor table model
-func NewNeighborTable(store *types.NeighborStore, ifaceInfo types.InterfaceInfo, logPath string) NeighborTableModel {
+func NewNeighborTable(store *types.NeighborStore, ifaceInfo types.InterfaceInfo, logPath string, cfg *config.Config) NeighborTableModel {
+	// Determine initial broadcast state from config
+	broadcasting := cfg.CDPBroadcast || cfg.LLDPBroadcast
+
 	return NeighborTableModel{
-		store:     store,
-		ifaceInfo: ifaceInfo,
-		styles:    DefaultStyles,
-		flashRows: make(map[string]time.Time),
-		logPath:   logPath,
+		store:        store,
+		ifaceInfo:    ifaceInfo,
+		config:       cfg,
+		styles:       DefaultStyles,
+		flashRows:    make(map[string]time.Time),
+		logPath:      logPath,
+		broadcasting: broadcasting,
 	}
 }
 
@@ -67,16 +75,26 @@ func tickCmd() tea.Cmd {
 
 // neighborTableKeyMap defines key bindings for the neighbor table
 type neighborTableKeyMap struct {
-	Refresh key.Binding
-	Quit    key.Binding
-	Up      key.Binding
-	Down    key.Binding
+	Refresh   key.Binding
+	Broadcast key.Binding
+	Config    key.Binding
+	Quit      key.Binding
+	Up        key.Binding
+	Down      key.Binding
 }
 
 var neighborKeys = neighborTableKeyMap{
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "refresh display"),
+	),
+	Broadcast: key.NewBinding(
+		key.WithKeys("b"),
+		key.WithHelp("b", "toggle broadcast"),
+	),
+	Config: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "configuration"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c", "q"),
@@ -92,6 +110,11 @@ var neighborKeys = neighborTableKeyMap{
 	),
 }
 
+// ToggleBroadcastMsg is sent when broadcast is toggled
+type ToggleBroadcastMsg struct {
+	Enabled bool
+}
+
 // Update handles messages for the neighbor table
 func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -104,6 +127,21 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 			m.scrollOffset = 0
 			// Force a screen clear/redraw
 			return m, tea.ClearScreen
+		case key.Matches(msg, neighborKeys.Broadcast):
+			// Toggle broadcasting
+			m.broadcasting = !m.broadcasting
+			// Update config to match
+			m.config.CDPBroadcast = m.broadcasting
+			m.config.LLDPBroadcast = m.broadcasting
+			// Send message to main to start/stop broadcaster
+			return m, func() tea.Msg {
+				return ToggleBroadcastMsg{Enabled: m.broadcasting}
+			}
+		case key.Matches(msg, neighborKeys.Config):
+			// Open configuration menu
+			return m, func() tea.Msg {
+				return GoToConfigMenuMsg{}
+			}
 		case key.Matches(msg, neighborKeys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, neighborKeys.Up):
@@ -438,10 +476,28 @@ func (m NeighborTableModel) renderFooter() string {
 	sepStyle := lipgloss.NewStyle().
 		Foreground(theme.Base02).
 		Background(bg)
+	onStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0B).
+		Background(bg).
+		Bold(true)
+	offStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03).
+		Background(bg)
 
-	// Build left side: commands
+	// Build left side: commands with broadcast status
 	sep := sepStyle.Render(" │ ")
+
+	// Broadcast status indicator
+	var broadcastStatus string
+	if m.broadcasting {
+		broadcastStatus = onStyle.Render("TX")
+	} else {
+		broadcastStatus = offStyle.Render("--")
+	}
+
 	leftPart := keyStyle.Render("r") + textStyle.Render(" refresh") + sep +
+		keyStyle.Render("b") + textStyle.Render(" broadcast:") + broadcastStatus + sep +
+		keyStyle.Render("c") + textStyle.Render(" config") + sep +
 		keyStyle.Render("↑/↓") + textStyle.Render(" scroll") + sep +
 		keyStyle.Render("q") + textStyle.Render(" quit")
 

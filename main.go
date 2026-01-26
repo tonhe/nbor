@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -12,8 +13,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/pcap"
 	"github.com/muesli/termenv"
 
+	"nbor/broadcast"
 	"nbor/capture"
 	"nbor/config"
 	"nbor/logger"
@@ -44,12 +47,28 @@ type cliOptions struct {
 	listAllInterfaces bool
 	showHelp          bool
 	showVersion       bool
+
+	// New CDP/LLDP options
+	systemName        string
+	systemDescription string
+	cdpListen         *bool // nil = use config, true/false = override
+	lldpListen        *bool
+	cdpBroadcast      *bool
+	lldpBroadcast     *bool
+	broadcastAll      bool // --broadcast enables both
+	interval          int  // 0 = use config
+	ttl               int  // 0 = use config
+	capabilities      string
 }
 
 // parseArgs parses command-line arguments
 func parseArgs() cliOptions {
 	opts := cliOptions{}
 	args := os.Args[1:]
+
+	// Helper for bool pointer flags
+	boolTrue := true
+	boolFalse := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -77,6 +96,103 @@ func parseArgs() cliOptions {
 			opts.themeName = strings.TrimPrefix(arg, "--theme=")
 		case strings.HasPrefix(arg, "-t="):
 			opts.themeName = strings.TrimPrefix(arg, "-t=")
+
+		// New CDP/LLDP flags
+		case arg == "--name":
+			if i+1 < len(args) {
+				i++
+				opts.systemName = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a system name\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--name="):
+			opts.systemName = strings.TrimPrefix(arg, "--name=")
+
+		case arg == "--description":
+			if i+1 < len(args) {
+				i++
+				opts.systemDescription = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a description\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--description="):
+			opts.systemDescription = strings.TrimPrefix(arg, "--description=")
+
+		case arg == "--cdp-listen":
+			opts.cdpListen = &boolTrue
+		case arg == "--no-cdp-listen":
+			opts.cdpListen = &boolFalse
+		case arg == "--lldp-listen":
+			opts.lldpListen = &boolTrue
+		case arg == "--no-lldp-listen":
+			opts.lldpListen = &boolFalse
+
+		case arg == "--cdp-broadcast":
+			opts.cdpBroadcast = &boolTrue
+		case arg == "--no-cdp-broadcast":
+			opts.cdpBroadcast = &boolFalse
+		case arg == "--lldp-broadcast":
+			opts.lldpBroadcast = &boolTrue
+		case arg == "--no-lldp-broadcast":
+			opts.lldpBroadcast = &boolFalse
+		case arg == "--broadcast":
+			opts.broadcastAll = true
+
+		case arg == "--interval":
+			if i+1 < len(args) {
+				i++
+				val, err := strconv.Atoi(args[i])
+				if err != nil || val <= 0 {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a positive integer\n", arg)
+					os.Exit(1)
+				}
+				opts.interval = val
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires an interval in seconds\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--interval="):
+			val, err := strconv.Atoi(strings.TrimPrefix(arg, "--interval="))
+			if err != nil || val <= 0 {
+				fmt.Fprintf(os.Stderr, "Error: --interval requires a positive integer\n")
+				os.Exit(1)
+			}
+			opts.interval = val
+
+		case arg == "--ttl":
+			if i+1 < len(args) {
+				i++
+				val, err := strconv.Atoi(args[i])
+				if err != nil || val <= 0 {
+					fmt.Fprintf(os.Stderr, "Error: %s requires a positive integer\n", arg)
+					os.Exit(1)
+				}
+				opts.ttl = val
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a TTL in seconds\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--ttl="):
+			val, err := strconv.Atoi(strings.TrimPrefix(arg, "--ttl="))
+			if err != nil || val <= 0 {
+				fmt.Fprintf(os.Stderr, "Error: --ttl requires a positive integer\n")
+				os.Exit(1)
+			}
+			opts.ttl = val
+
+		case arg == "--capabilities":
+			if i+1 < len(args) {
+				i++
+				opts.capabilities = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a comma-separated list\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--capabilities="):
+			opts.capabilities = strings.TrimPrefix(arg, "--capabilities=")
+
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(os.Stderr, "Error: unknown option %s\n", arg)
 			fmt.Fprintf(os.Stderr, "Run 'nbor --help' for usage\n")
@@ -110,25 +226,40 @@ Options:
   -v, --version           Show version
   -h, --help              Show this help
 
-Theme names use hyphens, not spaces (e.g., tokyo-night, catppuccin-mocha)
+Identity Options:
+  --name <string>         System name to advertise (default: hostname)
+  --description <string>  System description to advertise
+
+Listening Options:
+  --cdp-listen            Enable CDP listening (default)
+  --no-cdp-listen         Disable CDP listening
+  --lldp-listen           Enable LLDP listening (default)
+  --no-lldp-listen        Disable LLDP listening
+
+Broadcasting Options:
+  --broadcast             Enable both CDP and LLDP broadcasting
+  --cdp-broadcast         Enable CDP broadcasting
+  --no-cdp-broadcast      Disable CDP broadcasting (default)
+  --lldp-broadcast        Enable LLDP broadcasting
+  --no-lldp-broadcast     Disable LLDP broadcasting (default)
+  --interval <seconds>    Broadcast interval (default: 5)
+  --ttl <seconds>         TTL/hold time (default: 20)
+  --capabilities <list>   Capabilities to advertise (comma-separated)
+                          Options: router, bridge, station, switch, phone
 
 Examples:
-  nbor                              # Interactive interface picker
+  nbor                              # Interactive main menu
   nbor eth0                         # Start on eth0 directly
-  nbor --theme dracula              # Use dracula theme
-  nbor --theme tokyo-night          # Multi-word theme (use hyphens)
-  nbor -t catppuccin-mocha eth0     # Theme + interface
-  nbor "Ethernet 2"                 # Windows interface with spaces
-  nbor -l                           # List available interfaces
+  nbor --broadcast eth0             # Start broadcasting on eth0
+  nbor --broadcast --interval 10    # Broadcast every 10 seconds
+  nbor --name "my-host" --broadcast # Custom system name
+  nbor --capabilities router,bridge # Advertise as router and bridge
 
 Configuration:
-  Config file location:
-    Linux/macOS: $XDG_CONFIG_HOME/nbor/config.toml (default: ~/.config/nbor/config.toml)
-    Windows:     %%APPDATA%%\nbor\config.toml
+  Config file: ~/.config/nbor/config.toml (Linux/macOS)
+               %%APPDATA%%\nbor\config.toml (Windows)
 
-  Example config.toml:
-    # Theme name (use slug format with hyphens)
-    theme = "tokyo-night"
+  CLI flags override config file settings.
 `
 	fmt.Print(help)
 }
@@ -324,6 +455,60 @@ func printFilterWarning(name, reason string) {
 	fmt.Fprintln(os.Stderr)
 }
 
+// applyCliOverrides applies CLI flag overrides to the config
+func applyCliOverrides(cfg *config.Config, opts cliOptions) {
+	// Identity overrides
+	if opts.systemName != "" {
+		cfg.SystemName = opts.systemName
+	}
+	if opts.systemDescription != "" {
+		cfg.SystemDescription = opts.systemDescription
+	}
+
+	// Listening overrides
+	if opts.cdpListen != nil {
+		cfg.CDPListen = *opts.cdpListen
+	}
+	if opts.lldpListen != nil {
+		cfg.LLDPListen = *opts.lldpListen
+	}
+
+	// Broadcasting overrides
+	if opts.broadcastAll {
+		cfg.CDPBroadcast = true
+		cfg.LLDPBroadcast = true
+	}
+	if opts.cdpBroadcast != nil {
+		cfg.CDPBroadcast = *opts.cdpBroadcast
+	}
+	if opts.lldpBroadcast != nil {
+		cfg.LLDPBroadcast = *opts.lldpBroadcast
+	}
+
+	// Timing overrides
+	if opts.interval > 0 {
+		cfg.AdvertiseInterval = opts.interval
+	}
+	if opts.ttl > 0 {
+		cfg.TTL = opts.ttl
+	}
+
+	// Capabilities override
+	if opts.capabilities != "" {
+		caps := strings.Split(opts.capabilities, ",")
+		var cleanCaps []string
+		for _, c := range caps {
+			c = strings.TrimSpace(strings.ToLower(c))
+			if c != "" {
+				cleanCaps = append(cleanCaps, c)
+			}
+		}
+		if len(cleanCaps) > 0 {
+			cfg.Capabilities = cleanCaps
+		}
+	}
+}
+
 func main() {
 	// Parse CLI arguments
 	opts := parseArgs()
@@ -352,6 +537,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
 		cfg = config.DefaultConfig()
 	}
+
+	// Apply CLI overrides to config
+	applyCliOverrides(&cfg, opts)
 
 	// Determine theme: CLI flag overrides config
 	themeName := cfg.Theme
@@ -437,7 +625,13 @@ func main() {
 	store := types.NewNeighborStore()
 
 	// Create the TUI application
-	app := tui.NewApp(interfaces, store, selectedInterfaceChan)
+	// If interface is preselected, start at interface picker, otherwise show main menu
+	var app tui.AppModel
+	if preselectedInterface != nil {
+		app = tui.NewAppAtInterfacePicker(interfaces, store, &cfg, selectedInterfaceChan)
+	} else {
+		app = tui.NewApp(interfaces, store, &cfg, selectedInterfaceChan)
+	}
 
 	// Create program with options
 	p := tea.NewProgram(app, tea.WithAltScreen())
@@ -445,6 +639,8 @@ func main() {
 	// Variables for capture state
 	var capturer *capture.Capturer
 	var csvLogger *logger.CSVLogger
+	var broadcaster *broadcast.Broadcaster
+	var pcapHandle *pcap.Handle
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -452,7 +648,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		cleanup(capturer, csvLogger)
+		cleanupAll(capturer, csvLogger, broadcaster)
 		p.Quit()
 	}()
 
@@ -476,12 +672,24 @@ func main() {
 		// Get internal name for pcap (important for Windows)
 		internalName := platform.GetInterfaceInternalName(ifaceInfo.Name)
 
-		// Create capturer
-		cap, err := capture.NewCapturer(internalName)
+		// Open pcap handle for both capture and broadcast
+		handle, err := pcap.OpenLive(internalName, 65535, true, pcap.BlockForever)
 		if err != nil {
-			p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to start capture: %w", err)})
+			p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to open interface: %w", err)})
 			return
 		}
+		pcapHandle = handle
+
+		// Set BPF filter for capture
+		filter := "ether dst 01:00:0c:cc:cc:cc or ether dst 01:80:c2:00:00:0e"
+		if err := handle.SetBPFFilter(filter); err != nil {
+			handle.Close()
+			p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to set BPF filter: %w", err)})
+			return
+		}
+
+		// Create capturer using existing handle
+		cap := capture.NewCapturerWithHandle(handle, internalName)
 		capturer = cap
 
 		// Create CSV logger
@@ -492,6 +700,15 @@ func main() {
 			return
 		}
 		csvLogger = csvLog
+
+		// Create broadcaster
+		bc := broadcast.NewBroadcaster(handle, &cfg, &ifaceInfo)
+		broadcaster = bc
+
+		// Start broadcaster if broadcasting is enabled
+		if cfg.CDPBroadcast || cfg.LLDPBroadcast {
+			bc.Start()
+		}
 
 		// Set up neighbor callback - only log first-seen neighbors
 		store.OnNewNeighbor = func(n *types.Neighbor) {
@@ -522,15 +739,39 @@ func main() {
 		processPackets(packets, store, ifaceInfo.Name)
 	}()
 
+	// Goroutine to handle broadcast toggle messages
+	go func() {
+		for {
+			// This would need a channel from TUI, but for now broadcasting
+			// is controlled via the config and 'b' key toggle in neighbors.go
+			// The ToggleBroadcastMsg is handled in the TUI and we can poll
+			time.Sleep(100 * time.Millisecond)
+			if broadcaster != nil {
+				shouldRun := cfg.CDPBroadcast || cfg.LLDPBroadcast
+				if shouldRun && !broadcaster.IsRunning() {
+					broadcaster.Start()
+				} else if !shouldRun && broadcaster.IsRunning() {
+					broadcaster.Stop()
+				}
+			}
+		}
+	}()
+
 	// Run the TUI
 	if _, err := p.Run(); err != nil {
-		cleanup(capturer, csvLogger)
+		cleanupAll(capturer, csvLogger, broadcaster)
+		if pcapHandle != nil {
+			pcapHandle.Close()
+		}
 		fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Clean up on exit
-	cleanup(capturer, csvLogger)
+	cleanupAll(capturer, csvLogger, broadcaster)
+	if pcapHandle != nil {
+		pcapHandle.Close()
+	}
 }
 
 // processPackets processes incoming packets and updates the store
@@ -560,8 +801,11 @@ func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, 
 	}
 }
 
-// cleanup handles graceful shutdown
-func cleanup(cap *capture.Capturer, log *logger.CSVLogger) {
+// cleanupAll handles graceful shutdown of all components
+func cleanupAll(cap *capture.Capturer, log *logger.CSVLogger, bc *broadcast.Broadcaster) {
+	if bc != nil {
+		bc.Stop()
+	}
 	if cap != nil {
 		cap.Stop()
 	}

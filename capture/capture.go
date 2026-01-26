@@ -26,11 +26,12 @@ var ErrInterfaceDown = errors.New("interface is down")
 
 // Capturer handles packet capture on an interface
 type Capturer struct {
-	handle  *pcap.Handle
-	iface   string
-	packets chan gopacket.Packet
-	stop    chan struct{}
-	stopped bool
+	handle      *pcap.Handle
+	iface       string
+	packets     chan gopacket.Packet
+	stop        chan struct{}
+	stopped     bool
+	ownsHandle  bool // Whether this capturer owns the handle (should close it on stop)
 }
 
 // NewCapturer creates a new packet capturer for the given interface
@@ -64,11 +65,25 @@ func NewCapturer(ifaceName string) (*Capturer, error) {
 	}
 
 	return &Capturer{
-		handle:  handle,
-		iface:   ifaceName,
-		packets: make(chan gopacket.Packet, 100),
-		stop:    make(chan struct{}),
+		handle:     handle,
+		iface:      ifaceName,
+		packets:    make(chan gopacket.Packet, 100),
+		stop:       make(chan struct{}),
+		ownsHandle: true,
 	}, nil
+}
+
+// NewCapturerWithHandle creates a new capturer using an existing pcap handle
+// The handle should already have BPF filter set
+// The caller is responsible for closing the handle
+func NewCapturerWithHandle(handle *pcap.Handle, ifaceName string) *Capturer {
+	return &Capturer{
+		handle:     handle,
+		iface:      ifaceName,
+		packets:    make(chan gopacket.Packet, 100),
+		stop:       make(chan struct{}),
+		ownsHandle: false,
+	}
 }
 
 // Start begins capturing packets
@@ -114,7 +129,9 @@ func (c *Capturer) Stop() {
 	}
 	c.stopped = true
 	close(c.stop)
-	c.handle.Close()
+	if c.ownsHandle {
+		c.handle.Close()
+	}
 }
 
 // Interface returns the interface name
