@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
+
+	"nbor/version"
 )
 
 // Theme represents a Base16 color theme
@@ -663,3 +667,89 @@ func NewStyles(theme Theme) Styles {
 
 // DefaultStyles uses the default theme
 var DefaultStyles = NewStyles(DefaultTheme)
+
+// RenderHeader renders a consistent header bar across all views
+// leftContent: app name/version, rightContent: screen title
+func RenderHeader(leftContent, rightContent string, width int) string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	leftLen := lipgloss.Width(leftContent)
+	rightLen := lipgloss.Width(rightContent)
+
+	// Account for padding (1 on each side)
+	availableWidth := width - 2
+	gap := availableWidth - leftLen - rightLen
+	if gap < 1 {
+		gap = 1
+	}
+
+	// Build header content with background-colored spaces
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	headerContent := leftContent + spaceStyle.Render(strings.Repeat(" ", gap)) + rightContent
+
+	// Apply background style
+	headerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(width)
+
+	return headerStyle.Render(headerContent)
+}
+
+// RenderFooter renders a consistent footer bar across all views
+func RenderFooter(content string, width int) string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	contentWidth := lipgloss.Width(content)
+
+	// Account for padding (1 on each side)
+	availableWidth := width - 2
+	padWidth := availableWidth - contentWidth
+	if padWidth < 0 {
+		padWidth = 0
+	}
+
+	// Build footer content with background-colored spaces
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+	footerContent := content + spaceStyle.Render(strings.Repeat(" ", padWidth))
+
+	// Apply background style
+	footerStyle := lipgloss.NewStyle().
+		Background(bg).
+		Padding(0, 1).
+		Width(width)
+
+	return footerStyle.Render(footerContent)
+}
+
+// HeaderLeft returns styled app name and version for headers
+func HeaderLeft() string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	nameStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0C).
+		Background(bg).
+		Bold(true)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(theme.Base03).
+		Background(bg)
+	spaceStyle := lipgloss.NewStyle().Background(bg)
+
+	return nameStyle.Render("nbor") + spaceStyle.Render(" ") + versionStyle.Render("v"+version.Version)
+}
+
+// HeaderTitle returns a styled title for the right side of headers
+func HeaderTitle(title string) string {
+	theme := DefaultTheme
+	bg := theme.Base01
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(theme.Base0D).
+		Background(bg).
+		Bold(true)
+
+	return titleStyle.Render(title)
+}

@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"nbor/config"
-	"nbor/version"
 )
 
 // ConfigField represents a field in the config menu
@@ -156,7 +155,7 @@ var configMenuKeys = configMenuKeyMap{
 		key.WithHelp("ctrl+s", "save"),
 	),
 	Cancel: key.NewBinding(
-		key.WithKeys("escape"),
+		key.WithKeys("esc"),
 		key.WithHelp("esc", "cancel"),
 	),
 	Tab: key.NewBinding(
@@ -175,40 +174,57 @@ type ConfigCancelledMsg struct{}
 
 // Update handles messages for the config menu
 func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, configMenuKeys.Cancel):
+		// Handle escape/cancel first - always works regardless of field type
+		if key.Matches(msg, configMenuKeys.Cancel) {
 			return m, func() tea.Msg {
 				return ConfigCancelledMsg{}
 			}
+		}
 
-		case key.Matches(msg, configMenuKeys.Save):
+		// Handle save - always works
+		if key.Matches(msg, configMenuKeys.Save) {
 			return m.saveConfig()
+		}
 
-		case key.Matches(msg, configMenuKeys.Up):
+		// Handle navigation - up arrow always navigates
+		if key.Matches(msg, configMenuKeys.Up) {
 			m.focusIndex--
 			if m.focusIndex < 0 {
 				m.focusIndex = int(FieldCount) - 1
 			}
 			m.updateFocus()
+			return m, nil
+		}
 
-		case key.Matches(msg, configMenuKeys.Down), key.Matches(msg, configMenuKeys.Tab):
-			// For text inputs, only move on tab, not down arrow
-			if m.isTextInputField() && msg.String() != "tab" {
-				break
-			}
+		// Handle tab - always navigates to next field
+		if key.Matches(msg, configMenuKeys.Tab) {
 			m.focusIndex++
 			if m.focusIndex >= int(FieldCount) {
 				m.focusIndex = 0
 			}
 			m.updateFocus()
+			return m, nil
+		}
 
-		case key.Matches(msg, configMenuKeys.Toggle):
+		// Handle down arrow - navigates except when in text input
+		if key.Matches(msg, configMenuKeys.Down) {
+			if !m.isTextInputField() {
+				m.focusIndex++
+				if m.focusIndex >= int(FieldCount) {
+					m.focusIndex = 0
+				}
+				m.updateFocus()
+			}
+			return m, nil
+		}
+
+		// Handle toggle for checkboxes and buttons
+		if key.Matches(msg, configMenuKeys.Toggle) {
 			if m.isToggleField() {
 				m.toggleCurrentField()
+				return m, nil
 			} else if ConfigField(m.focusIndex) == FieldSave {
 				return m.saveConfig()
 			} else if ConfigField(m.focusIndex) == FieldCancel {
@@ -218,28 +234,28 @@ func (m ConfigMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Pass remaining keys to text inputs only
+		if m.isTextInputField() {
+			var cmd tea.Cmd
+			switch ConfigField(m.focusIndex) {
+			case FieldSystemName:
+				m.systemNameInput, cmd = m.systemNameInput.Update(msg)
+			case FieldSystemDescription:
+				m.systemDescInput, cmd = m.systemDescInput.Update(msg)
+			case FieldInterval:
+				m.intervalInput, cmd = m.intervalInput.Update(msg)
+			case FieldTTL:
+				m.ttlInput, cmd = m.ttlInput.Update(msg)
+			}
+			return m, cmd
+		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 	}
 
-	// Update text inputs
-	if m.isTextInputField() {
-		var cmd tea.Cmd
-		switch ConfigField(m.focusIndex) {
-		case FieldSystemName:
-			m.systemNameInput, cmd = m.systemNameInput.Update(msg)
-		case FieldSystemDescription:
-			m.systemDescInput, cmd = m.systemDescInput.Update(msg)
-		case FieldInterval:
-			m.intervalInput, cmd = m.intervalInput.Update(msg)
-		case FieldTTL:
-			m.ttlInput, cmd = m.ttlInput.Update(msg)
-		}
-		cmds = append(cmds, cmd)
-	}
-
-	return m, tea.Batch(cmds...)
+	return m, nil
 }
 
 // isTextInputField returns true if current field is a text input
@@ -377,44 +393,7 @@ func (m ConfigMenuModel) View() string {
 
 // renderHeader renders the header bar
 func (m ConfigMenuModel) renderHeader() string {
-	theme := DefaultTheme
-	bg := theme.Base01
-
-	// Build the content pieces with background color
-	nameStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0C).
-		Background(bg).
-		Bold(true)
-	versionStyle := lipgloss.NewStyle().
-		Foreground(theme.Base03).
-		Background(bg)
-	titleStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0D).
-		Background(bg).
-		Bold(true)
-	spaceStyle := lipgloss.NewStyle().Background(bg)
-
-	left := nameStyle.Render("nbor") + spaceStyle.Render(" ") + versionStyle.Render("v"+version.Version)
-	right := titleStyle.Render("Configuration")
-
-	// Calculate gap to fill the width
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(right)
-	gapWidth := m.width - leftWidth - rightWidth - 2 // -2 for padding
-	if gapWidth < 1 {
-		gapWidth = 1
-	}
-
-	// Build the full header line
-	headerLine := left + spaceStyle.Render(strings.Repeat(" ", gapWidth)) + right
-
-	// Wrap in a style that sets the full width
-	headerStyle := lipgloss.NewStyle().
-		Background(bg).
-		Padding(0, 1).
-		Width(m.width)
-
-	return headerStyle.Render(headerLine)
+	return RenderHeader(HeaderLeft(), HeaderTitle("Configuration"), m.width)
 }
 
 // renderContent renders the form content
@@ -670,7 +649,6 @@ func (m ConfigMenuModel) renderFooter() string {
 	sepStyle := lipgloss.NewStyle().
 		Foreground(theme.Base02).
 		Background(bg)
-	spaceStyle := lipgloss.NewStyle().Background(bg)
 
 	sep := sepStyle.Render(" │ ")
 
@@ -680,21 +658,7 @@ func (m ConfigMenuModel) renderFooter() string {
 		keyStyle.Render("ctrl+s") + textStyle.Render(" save") + sep +
 		keyStyle.Render("esc") + textStyle.Render(" cancel")
 
-	// Calculate padding to fill width
-	contentWidth := lipgloss.Width(content)
-	padWidth := m.width - contentWidth - 2 // -2 for padding
-	if padWidth < 0 {
-		padWidth = 0
-	}
-
-	footerLine := content + spaceStyle.Render(strings.Repeat(" ", padWidth))
-
-	footerStyle := lipgloss.NewStyle().
-		Background(bg).
-		Padding(0, 1).
-		Width(m.width)
-
-	return footerStyle.Render(footerLine)
+	return RenderFooter(content, m.width)
 }
 
 // GetConfig returns the current config

@@ -115,6 +115,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to config menu from capture screen
 		m.state = StateConfigMenu
 		m.configMenu = NewConfigMenu(m.config)
+		m.configMenu.width = m.width
+		m.configMenu.height = m.height
 		return m, m.configMenu.Init()
 
 	case ConfigSavedMsg:

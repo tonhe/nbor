@@ -152,7 +152,7 @@ func (m InterfacePickerModel) View() string {
 
 	// Calculate spacing to push footer to bottom
 	headerLines := strings.Count(header, "\n") + 1
-	contentLines := strings.Count(content, "\n") + 1
+	contentLines := strings.Count(content, "\n") // content ends with \n, don't add +1
 	footerLines := 1
 
 	usedLines := headerLines + contentLines + footerLines
