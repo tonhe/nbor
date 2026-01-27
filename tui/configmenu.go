@@ -259,20 +259,20 @@ type configMenuKeyMap struct {
 
 var configMenuKeys = configMenuKeyMap{
 	Up: key.NewBinding(
-		key.WithKeys("up"),
-		key.WithHelp("↑", "up"),
+		key.WithKeys("up", "k"),
+		key.WithHelp("↑/k", "up"),
 	),
 	Down: key.NewBinding(
-		key.WithKeys("down"),
-		key.WithHelp("↓", "down"),
+		key.WithKeys("down", "j"),
+		key.WithHelp("↓/j", "down"),
 	),
 	Left: key.NewBinding(
-		key.WithKeys("left"),
-		key.WithHelp("←", "left"),
+		key.WithKeys("left", "h"),
+		key.WithHelp("←/h", "left"),
 	),
 	Right: key.NewBinding(
-		key.WithKeys("right"),
-		key.WithHelp("→", "right"),
+		key.WithKeys("right", "l"),
+		key.WithHelp("→/l", "right"),
 	),
 	Select: key.NewBinding(
 		key.WithKeys(" ", "enter"),
@@ -503,23 +503,23 @@ func (m ConfigMenuModel) renderFooter() string {
 	var content string
 	switch m.subState {
 	case SubStateMain:
-		content = keyStyle.Render("↑/↓") + textStyle.Render(" navigate") + sep +
+		content = keyStyle.Render("↑↓/jk") + textStyle.Render(" navigate") + sep +
 			keyStyle.Render("enter") + textStyle.Render(" select") + sep +
 			keyStyle.Render("ctrl+s") + textStyle.Render(" save")
 	case SubStateTheme:
-		content = keyStyle.Render("↑/↓") + textStyle.Render(" preview") + sep +
+		content = keyStyle.Render("↑↓/jk") + textStyle.Render(" preview") + sep +
 			keyStyle.Render("enter") + textStyle.Render(" select") + sep +
 			keyStyle.Render("esc") + textStyle.Render(" cancel")
 	case SubStateAbout:
 		content = keyStyle.Render("esc") + textStyle.Render(" back") + sep +
 			keyStyle.Render("enter") + textStyle.Render(" back")
 	case SubStateListening, SubStateBroadcast:
-		content = keyStyle.Render("↑/↓/←/→") + textStyle.Render(" navigate") + sep +
+		content = keyStyle.Render("hjkl/arrows") + textStyle.Render(" navigate") + sep +
 			keyStyle.Render("space") + textStyle.Render(" toggle") + sep +
 			keyStyle.Render("esc") + textStyle.Render(" back") + sep +
 			keyStyle.Render("ctrl+s") + textStyle.Render(" save")
 	default:
-		content = keyStyle.Render("↑/↓") + textStyle.Render(" navigate") + sep +
+		content = keyStyle.Render("↑↓/jk") + textStyle.Render(" navigate") + sep +
 			keyStyle.Render("space") + textStyle.Render(" toggle") + sep +
 			keyStyle.Render("esc") + textStyle.Render(" back") + sep +
 			keyStyle.Render("ctrl+s") + textStyle.Render(" save")
