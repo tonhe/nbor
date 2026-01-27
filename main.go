@@ -785,7 +785,7 @@ func main() {
 		if ifaceInfo.MAC != nil {
 			localMAC = ifaceInfo.MAC.String()
 		}
-		processPackets(packets, store, ifaceInfo.Name, localMAC)
+		processPackets(packets, store, ifaceInfo.Name, localMAC, &cfg)
 	}()
 
 	// Goroutine to handle broadcast toggle messages from TUI
@@ -866,7 +866,8 @@ func main() {
 
 // processPackets processes incoming packets and updates the store
 // localMAC is used to filter out our own broadcast packets
-func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, ifaceName string, localMAC string) {
+// cfg is used to check listen settings (CDPListen, LLDPListen)
+func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, ifaceName string, localMAC string, cfg *config.Config) {
 	for packet := range packets {
 		// Filter out our own broadcasts by checking source MAC
 		srcMAC := capture.GetSourceMAC(packet)
@@ -878,10 +879,16 @@ func processPackets(packets <-chan gopacket.Packet, store *types.NeighborStore, 
 		var neighbor *types.Neighbor
 		var err error
 
-		// Determine packet type and parse
+		// Determine packet type and parse (respecting listen settings)
 		if capture.IsCDPPacket(packet) {
+			if !cfg.CDPListen {
+				continue // CDP listening disabled
+			}
 			neighbor, err = parser.ParseCDP(packet, ifaceName)
 		} else if capture.IsLLDPPacket(packet) {
+			if !cfg.LLDPListen {
+				continue // LLDP listening disabled
+			}
 			neighbor, err = parser.ParseLLDP(packet, ifaceName)
 		} else {
 			continue
