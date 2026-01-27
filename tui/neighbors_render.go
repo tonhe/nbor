@@ -14,7 +14,8 @@ import (
 // column defines a table column for responsive display
 type column struct {
 	name     string
-	width    int
+	minWidth int // Minimum width for the column
+	width    int // Actual width (calculated dynamically)
 	priority int // Lower = higher priority (shown first)
 	getter   func(*types.Neighbor) string
 }
@@ -231,24 +232,48 @@ func (m NeighborTableModel) renderHeader() string {
 	return headerStyle.Render(headerContent)
 }
 
-// getVisibleColumns returns columns that fit in the current width
+// getVisibleColumns returns columns that fit in the current width with dynamic sizing
 func (m NeighborTableModel) getVisibleColumns() []column {
-	// Define all columns with priorities (lower = shown first)
+	neighbors := m.getFilteredNeighbors()
+
+	// Define all columns with priorities and minimum widths
 	// Priority order: hostname, port, last seen, mgmt IP, platform, location, protocol, capabilities
 	allColumns := []column{
-		{name: "Hostname", width: 20, priority: 1, getter: func(n *types.Neighbor) string { return n.Hostname }},
-		{name: "Port", width: 12, priority: 2, getter: func(n *types.Neighbor) string { return n.PortID }},
-		{name: "Last Seen", width: 10, priority: 3, getter: func(n *types.Neighbor) string { return logger.FormatDuration(n.LastSeen) }},
-		{name: "Mgmt IP", width: 15, priority: 4, getter: func(n *types.Neighbor) string {
+		{name: "Hostname", minWidth: 10, priority: 1, getter: func(n *types.Neighbor) string { return n.Hostname }},
+		{name: "Port", minWidth: 6, priority: 2, getter: func(n *types.Neighbor) string { return abbreviateInterface(n.PortID) }},
+		{name: "Last Seen", minWidth: 10, priority: 3, getter: func(n *types.Neighbor) string { return logger.FormatDuration(n.LastSeen) }},
+		{name: "Mgmt IP", minWidth: 10, priority: 4, getter: func(n *types.Neighbor) string {
 			if n.ManagementIP != nil {
 				return n.ManagementIP.String()
 			}
 			return ""
 		}},
-		{name: "Platform", width: 18, priority: 5, getter: func(n *types.Neighbor) string { return n.Platform }},
-		{name: "Location", width: 15, priority: 6, getter: func(n *types.Neighbor) string { return n.Location }},
-		{name: "Proto", width: 9, priority: 7, getter: func(n *types.Neighbor) string { return string(n.Protocol) }},
-		{name: "Capabilities", width: 15, priority: 8, getter: func(n *types.Neighbor) string { return logger.FormatCapabilities(n.Capabilities) }},
+		{name: "Platform", minWidth: 10, priority: 5, getter: func(n *types.Neighbor) string { return n.Platform }},
+		{name: "Location", minWidth: 10, priority: 6, getter: func(n *types.Neighbor) string { return n.Location }},
+		{name: "Proto", minWidth: 5, priority: 7, getter: func(n *types.Neighbor) string { return string(n.Protocol) }},
+		{name: "Capabilities", minWidth: 8, priority: 8, getter: func(n *types.Neighbor) string { return logger.FormatCapabilities(n.Capabilities) }},
+	}
+
+	// Calculate dynamic width for each column based on actual data
+	for i := range allColumns {
+		col := &allColumns[i]
+		// Start with header width
+		maxWidth := lipgloss.Width(col.name)
+
+		// Check all neighbor values
+		for _, n := range neighbors {
+			valWidth := lipgloss.Width(col.getter(n))
+			if valWidth > maxWidth {
+				maxWidth = valWidth
+			}
+		}
+
+		// Apply minimum width
+		if maxWidth < col.minWidth {
+			maxWidth = col.minWidth
+		}
+
+		col.width = maxWidth
 	}
 
 	// Calculate which columns fit (already sorted by priority in definition order 1-8)
@@ -475,4 +500,40 @@ func truncate(s string, width int) string {
 		result += string(r)
 	}
 	return result + "..."
+}
+
+// abbreviateInterface shortens common network interface type names
+// e.g., GigabitEthernet1/0/1 -> Gi1/0/1
+func abbreviateInterface(portID string) string {
+	// Common Cisco and other vendor interface abbreviations
+	// Order matters - longer prefixes must come first
+	abbreviations := []struct {
+		full  string
+		short string
+	}{
+		{"HundredGigabitEthernet", "Hu"},
+		{"FortyGigabitEthernet", "Fo"},
+		{"TwentyFiveGigE", "Twe"},
+		{"TenGigabitEthernet", "Te"},
+		{"GigabitEthernet", "Gi"},
+		{"FastEthernet", "Fa"},
+		{"Ethernet", "Eth"},
+		{"Port-channel", "Po"},
+		{"port-channel", "Po"},
+		{"Management", "Mgmt"},
+		{"TenGigE", "Te"},
+		{"HundredGigE", "Hu"},
+		{"FortyGigE", "Fo"},
+		{"Loopback", "Lo"},
+		{"Tunnel", "Tu"},
+		{"Serial", "Se"},
+		{"Vlan", "Vl"},
+	}
+
+	for _, abbr := range abbreviations {
+		if strings.HasPrefix(portID, abbr.full) {
+			return abbr.short + portID[len(abbr.full):]
+		}
+	}
+	return portID
 }

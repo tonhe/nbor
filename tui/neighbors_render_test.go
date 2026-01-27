@@ -206,6 +206,37 @@ func TestRenderDetailViewTooSmall(t *testing.T) {
 		m.height, lineCount, strings.Contains(output, "too small"))
 }
 
+func TestAbbreviateInterface(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"GigabitEthernet1/0/1", "Gi1/0/1"},
+		{"GigabitEthernet0/0/1", "Gi0/0/1"},
+		{"TenGigabitEthernet1/1/1", "Te1/1/1"},
+		{"FortyGigabitEthernet1/0/1", "Fo1/0/1"},
+		{"HundredGigabitEthernet1/0/1", "Hu1/0/1"},
+		{"FastEthernet0/1", "Fa0/1"},
+		{"Ethernet1/1", "Eth1/1"},
+		{"Port-channel10", "Po10"},
+		{"Loopback0", "Lo0"},
+		{"Vlan100", "Vl100"},
+		{"eth0", "eth0"},               // Linux interface unchanged
+		{"Gi0/1", "Gi0/1"},             // Already short
+		{"Management1", "Mgmt1"},       // Management interface
+		{"TenGigE0/0/0/1", "Te0/0/0/1"}, // IOS XR style
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := abbreviateInterface(tt.input)
+			if result != tt.expected {
+				t.Errorf("abbreviateInterface(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestLipglossPlaceOutput(t *testing.T) {
 	// Test what lipgloss.Place actually produces
 	store := types.NewNeighborStore()
