@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -52,7 +53,8 @@ func NewCapturer(ifaceName string) (*Capturer, error) {
 	// Open pcap handle
 	// Snapshot length of 65535 to capture full packets
 	// Promiscuous mode to see all packets
-	handle, err := pcap.OpenLive(ifaceName, 65535, true, pcap.BlockForever)
+	// Use 100ms timeout instead of BlockForever to allow clean shutdown on Linux
+	handle, err := pcap.OpenLive(ifaceName, 65535, true, 100*time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open interface %s: %w", ifaceName, err)
 	}
@@ -89,6 +91,8 @@ func NewCapturerWithHandle(handle *pcap.Handle, ifaceName string) *Capturer {
 // Start begins capturing packets
 func (c *Capturer) Start() <-chan gopacket.Packet {
 	go func() {
+		defer close(c.packets) // Close channel when goroutine exits
+
 		packetSource := gopacket.NewPacketSource(c.handle, c.handle.LinkType())
 		packetSource.NoCopy = true
 
@@ -132,6 +136,7 @@ func (c *Capturer) Stop() {
 	if c.ownsHandle {
 		c.handle.Close()
 	}
+	// Note: packets channel is closed by the capture goroutine via defer
 }
 
 // Interface returns the interface name

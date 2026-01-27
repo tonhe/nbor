@@ -709,7 +709,8 @@ func main() {
 		internalName := platform.GetInterfaceInternalName(ifaceInfo.Name)
 
 		// Open pcap handle for both capture and broadcast
-		handle, err := pcap.OpenLive(internalName, 65535, true, pcap.BlockForever)
+		// Use 100ms timeout instead of BlockForever to allow clean shutdown on Linux
+		handle, err := pcap.OpenLive(internalName, 65535, true, 100*time.Millisecond)
 		if err != nil {
 			p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to open interface: %w", err)})
 			return
