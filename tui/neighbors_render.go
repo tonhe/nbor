@@ -75,13 +75,9 @@ func (m NeighborTableModel) renderDetailView(n *types.Neighbor) string {
 	}
 
 	var b strings.Builder
-	// DEBUG: Add visible marker at very start to see what's happening
-	b.WriteString(fmt.Sprintf("[h=%d,ph=%d,pad=%d] ", m.height, popupLines, paddingLines))
 	b.WriteString(header)
 	b.WriteString("\n")
 	b.WriteString(popup)
-	// Add padding to push footer to bottom (popup already ends without trailing newline)
-	// We need paddingLines + 1 newlines: paddingLines for blank space, plus 1 to end the last popup line
 	b.WriteString(strings.Repeat("\n", paddingLines+1))
 	b.WriteString(footer)
 
