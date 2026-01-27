@@ -17,7 +17,8 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
   - SNMP Location (if available)
   - Device capabilities (Router, Switch, Bridge, AP, Phone, etc.)
   - Protocol type (CDP or LLDP)
-  - Last seen timestamp
+  - First/last seen timestamps
+- **Neighbor Detail View**: Press Enter to see all information for a selected neighbor in a popup
 - **Visual Alerts**: New neighbors are highlighted and trigger a terminal bell
 - **Stale Detection**: Neighbors not seen recently are grayed out (configurable timeout)
 - **CSV Logging**: All discoveries are logged to a timestamped CSV file (new log on listen setting changes)
@@ -184,10 +185,12 @@ On launch, select a network interface using arrow keys and press Enter.
 Once capturing, the main view shows discovered neighbors in a table.
 
 **Hotkeys:**
+- `↑/↓` or `j/k` - Navigate/select neighbors
+- `Enter` - View detailed information for selected neighbor
 - `r` - Refresh display
 - `b` - Toggle broadcasting on/off
 - `c` - Open configuration menu
-- `↑/↓` or `j/k` - Scroll through neighbors
+- `Esc` - Close detail popup
 - `Ctrl+C` or `q` - Quit
 
 **Status Bar:**
@@ -222,15 +225,17 @@ The codebase is structured for maintainability and future multi-interface suppor
 
 ```
 nbor/
-├── main.go           # Application entry point and CLI parsing
+├── main.go           # Application entry point
 ├── broadcast/        # CDP/LLDP packet construction and transmission
 ├── capture/          # Packet capture with gopacket/libpcap
-├── config/           # Configuration file loading (TOML)
+├── cli/              # Command-line argument parsing
+├── config/           # Configuration file loading and validation (TOML)
 ├── logger/           # CSV logging
 ├── parser/           # CDP and LLDP protocol parsing
-├── platform/         # OS-specific abstractions (Linux/macOS/Windows)
+├── platform/         # OS-specific interface detection (Linux/macOS/Windows)
+├── protocol/         # Shared protocol constants and utilities
 ├── tui/              # Terminal UI with bubbletea/lipgloss
-├── types/            # Shared data types
+├── types/            # Shared data types (Neighbor, InterfaceInfo)
 └── version/          # Version constant
 ```
 
@@ -322,6 +327,14 @@ log_directory = ""         # Empty = current directory
 # Interface selection
 auto_select_interface = true  # Auto-select if only one wired interface is up
 ```
+
+### Configuration Validation
+
+nbor automatically validates configuration values on load. Invalid values are reset to defaults:
+- `advertise_interval`: 1-300 seconds (default: 5)
+- `ttl`: 1-65535 seconds (default: 20)
+- `staleness_timeout`: 0-86400 seconds (default: 180)
+- `stale_removal_time`: 0-86400 seconds (default: 0)
 
 ## License
 
