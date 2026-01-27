@@ -184,6 +184,8 @@ On launch, select a network interface using arrow keys and press Enter.
 
 Once capturing, the main view shows discovered neighbors in a table.
 
+![Screenshot of Capture view](img/capture.png)
+
 **Hotkeys:**
 - `↑/↓` or `j/k` - Navigate/select neighbors
 - `Enter` - View detailed information for selected neighbor
@@ -192,6 +194,8 @@ Once capturing, the main view shows discovered neighbors in a table.
 - `c` - Open configuration menu
 - `Esc` - Close detail popup
 - `Ctrl+C` or `q` - Quit
+
+![Screenshot of detail view](img/details.png)
 
 **Status Bar:**
 The footer shows the current broadcast status (`TX` when broadcasting, `--` when not).
@@ -205,6 +209,8 @@ Press `c` from the capture view to open the configuration menu with these submen
 - **Logging Options**: Enable/disable logging, set log directory
 - **Change Theme**: Browse and preview all 20 themes with live preview
 - **About**: Version info and links
+
+![Screenshot of Configuration Menu](img/config.png)
 
 Navigate with arrow keys (including left/right for multi-option rows), toggle with Space/Enter. Press Ctrl+S or select Save & Exit to save changes. ESC returns from submenus; select Cancel to discard all changes.
 
@@ -269,6 +275,8 @@ nbor includes 20 built-in themes based on the Base16 color specification.
 | `github-dark` | GitHub Dark |
 
 Use `nbor --list-themes` to see available themes. Theme names use hyphens (not spaces), so "Tokyo Night" becomes `tokyo-night`.
+
+![Screenshot of the Theme picker](img/themes.png)
 
 **For a single session:**
 ```bash

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -367,13 +368,18 @@ func main() {
 		if pcapHandle != nil {
 			pcapHandle.Close()
 		}
-		// Re-exec the program to restart fresh
+		// Re-exec the program to restart fresh, with --no-auto-select to force interface picker
 		exe, err := os.Executable()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error restarting: %v\n", err)
 			os.Exit(1)
 		}
-		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+		// Build args, adding --no-auto-select if not already present
+		args := os.Args
+		if !slices.Contains(args, "--no-auto-select") {
+			args = append(args, "--no-auto-select")
+		}
+		if err := syscall.Exec(exe, args, os.Environ()); err != nil {
 			fmt.Fprintf(os.Stderr, "Error restarting: %v\n", err)
 			os.Exit(1)
 		}
