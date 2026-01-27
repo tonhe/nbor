@@ -145,7 +145,8 @@ func Load() (Config, error) {
 	}
 
 	var cfg Config
-	if _, err := toml.DecodeFile(configPath, &cfg); err != nil {
+	meta, err := toml.DecodeFile(configPath, &cfg)
+	if err != nil {
 		return DefaultConfig(), err
 	}
 
@@ -155,9 +156,28 @@ func Load() (Config, error) {
 		cfg.Theme = defaults.Theme
 	}
 	// Note: SystemName and SystemDescription empty is valid (means use defaults at runtime)
-	// For bool fields, we can't distinguish between "not set" and "set to false"
-	// so we rely on the TOML decoder's behavior (missing = zero value)
-	// For new configs, the defaults will be written on first save
+
+	// For bool fields, use metadata to check if they were actually defined
+	// This allows us to distinguish between "not set" and "explicitly set to false"
+	// Check ALL boolean fields for consistency and future-proofing
+	if !meta.IsDefined("cdp_listen") {
+		cfg.CDPListen = defaults.CDPListen
+	}
+	if !meta.IsDefined("cdp_broadcast") {
+		cfg.CDPBroadcast = defaults.CDPBroadcast
+	}
+	if !meta.IsDefined("lldp_listen") {
+		cfg.LLDPListen = defaults.LLDPListen
+	}
+	if !meta.IsDefined("lldp_broadcast") {
+		cfg.LLDPBroadcast = defaults.LLDPBroadcast
+	}
+	if !meta.IsDefined("broadcast_on_startup") {
+		cfg.BroadcastOnStartup = defaults.BroadcastOnStartup
+	}
+	if !meta.IsDefined("logging_enabled") {
+		cfg.LoggingEnabled = defaults.LoggingEnabled
+	}
 
 	// Fill in missing numeric defaults (0 means not set for these)
 	if cfg.AdvertiseInterval <= 0 {
@@ -176,7 +196,6 @@ func Load() (Config, error) {
 		cfg.StalenessTimeout = defaults.StalenessTimeout
 	}
 	// StaleRemovalTime: 0 is valid (means never remove), so don't fill default
-	// LoggingEnabled: can't distinguish false from missing, handled by TOML decoder
 	// LogDirectory: empty is valid (means use default location)
 
 	return cfg, nil
