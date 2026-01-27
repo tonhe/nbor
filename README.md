@@ -346,4 +346,8 @@ nbor automatically validates configuration values on load. Invalid values are re
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+---
+
+*This project was developed with assistance from [Claude](https://claude.ai), an AI assistant by Anthropic.*
