@@ -19,9 +19,10 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
   - Protocol type (CDP or LLDP)
   - Last seen timestamp
 - **Visual Alerts**: New neighbors are highlighted and trigger a terminal bell
-- **Stale Detection**: Neighbors not seen for 3-4 minutes are grayed out
+- **Stale Detection**: Neighbors not seen recently are grayed out (configurable timeout)
 - **CSV Logging**: All discoveries are logged to a timestamped CSV file (new log on listen setting changes)
 - **Self-filtering**: Own broadcasts are automatically filtered from the neighbor list
+- **Auto-Select Interface**: Automatically starts capturing if only one wired interface is available
 - **20 Built-in Themes**: Solarized, Gruvbox, Dracula, Nord, Tokyo Night, Catppuccin, and more
 - **Configuration File**: Persistent settings with XDG support on Linux/macOS and %APPDATA% on Windows
 
@@ -122,6 +123,10 @@ Broadcasting Options:
 Capability Options:
   --capabilities <list>   Comma-separated capabilities to advertise:
                           router, bridge, station (default: station)
+
+Interface Options:
+  --auto-select           Auto-select if only one wired interface is up (default)
+  --no-auto-select        Always show interface picker
 ```
 
 ### Examples
@@ -192,15 +197,15 @@ The footer shows the current broadcast status (`TX` when broadcasting, `--` when
 
 ### Configuration Menu
 
-Press `c` from the capture view to open the configuration menu, which allows you to adjust:
+Press `c` from the capture view to open the configuration menu with these submenus:
 - **Change Interface**: Return to the interface selection screen
-- **System Identity**: System name and description (used when broadcasting)
-- **Listening**: Enable/disable CDP and LLDP listening (changes trigger a new log file)
-- **Broadcasting**: Enable/disable CDP and LLDP broadcasting, set interval and TTL
-- **Broadcast on Startup**: Automatically start broadcasting when the application starts
-- **Capabilities**: Choose what device type to advertise (router, bridge, station)
+- **Listening Options**: CDP/LLDP listening, capability filters, staleness timeouts
+- **Broadcast Options**: System identity, CDP/LLDP broadcasting, interval, TTL, capabilities
+- **Logging Options**: Enable/disable logging, set log directory
+- **Change Theme**: Browse and preview all 20 themes with live preview
+- **About**: Version info and links
 
-Navigate with arrow keys, toggle options with Space/Enter, and press Ctrl+S to save or Esc to cancel.
+Navigate with arrow keys (including left/right for multi-option rows), toggle with Space/Enter. Press Ctrl+S or select Save & Exit to save changes. ESC returns from submenus; select Cancel to discard all changes.
 
 **Note:** The `b` key toggles broadcasting on/off at runtime without changing your saved configuration. This allows quick enabling/disabling without modifying your persistent settings.
 
@@ -304,6 +309,20 @@ ttl = 20                   # Time-to-live / hold time in seconds
 
 # Capabilities to advertise (router, bridge, station)
 capabilities = ["station"]
+
+# Display filtering (empty = show all neighbors)
+filter_capabilities = []   # e.g., ["router", "bridge"] to only show routers/bridges
+
+# Staleness settings
+staleness_timeout = 180    # Seconds before graying out (default 3 min)
+stale_removal_time = 0     # Seconds before removal (0 = never remove)
+
+# Logging
+logging_enabled = true
+log_directory = ""         # Empty = current directory
+
+# Interface selection
+auto_select_interface = true  # Auto-select if only one wired interface is up
 ```
 
 ## License

@@ -64,6 +64,9 @@ type cliOptions struct {
 	interval          int  // 0 = use config
 	ttl               int  // 0 = use config
 	capabilities      string
+
+	// Interface selection
+	noAutoSelect *bool // nil = use config, true/false = override
 }
 
 // parseArgs parses command-line arguments
@@ -198,6 +201,11 @@ func parseArgs() cliOptions {
 		case strings.HasPrefix(arg, "--capabilities="):
 			opts.capabilities = strings.TrimPrefix(arg, "--capabilities=")
 
+		case arg == "--auto-select":
+			opts.noAutoSelect = &boolFalse // auto-select enabled (noAutoSelect = false)
+		case arg == "--no-auto-select":
+			opts.noAutoSelect = &boolTrue // auto-select disabled (noAutoSelect = true)
+
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(os.Stderr, "Error: unknown option %s\n", arg)
 			fmt.Fprintf(os.Stderr, "Run 'nbor --help' for usage\n")
@@ -251,6 +259,10 @@ Broadcasting Options:
   --ttl <seconds>         TTL/hold time (default: 20)
   --capabilities <list>   Capabilities to advertise (comma-separated)
                           Options: router, bridge, station, switch, phone
+
+Interface Options:
+  --auto-select           Auto-select if only one interface (default)
+  --no-auto-select        Always show interface picker
 
 Examples:
   nbor                              # Interactive main menu
@@ -512,6 +524,11 @@ func applyCliOverrides(cfg *config.Config, opts cliOptions) {
 			cfg.Capabilities = cleanCaps
 		}
 	}
+
+	// Auto-select override
+	if opts.noAutoSelect != nil {
+		cfg.AutoSelectInterface = !*opts.noAutoSelect
+	}
 }
 
 func main() {
@@ -623,6 +640,19 @@ func main() {
 				// Truly not found
 				printInterfaceError(opts.interfaceName, interfaces)
 			}
+		}
+	}
+
+	// Auto-select interface if only one is available and up
+	if preselectedInterface == nil && cfg.AutoSelectInterface {
+		var upInterfaces []types.InterfaceInfo
+		for _, iface := range interfaces {
+			if iface.IsUp {
+				upInterfaces = append(upInterfaces, iface)
+			}
+		}
+		if len(upInterfaces) == 1 {
+			preselectedInterface = &upInterfaces[0]
 		}
 	}
 

@@ -62,6 +62,9 @@ type Config struct {
 
 	// LogDirectory is the directory where log files are stored
 	LogDirectory string `toml:"log_directory"`
+
+	// AutoSelectInterface automatically selects the interface if only one wired interface is available
+	AutoSelectInterface bool `toml:"auto_select_interface"`
 }
 
 // DefaultConfig returns the default configuration
@@ -81,8 +84,9 @@ func DefaultConfig() Config {
 		FilterCapabilities: []string{}, // Empty means show all
 		StalenessTimeout:   180,         // 3 minutes
 		StaleRemovalTime:   0,           // Never remove
-		LoggingEnabled:     true,
-		LogDirectory:       "", // Empty means use default location
+		LoggingEnabled:      true,
+		LogDirectory:        "", // Empty means use default location
+		AutoSelectInterface: true,
 	}
 }
 
@@ -178,6 +182,9 @@ func Load() (Config, error) {
 	if !meta.IsDefined("logging_enabled") {
 		cfg.LoggingEnabled = defaults.LoggingEnabled
 	}
+	if !meta.IsDefined("auto_select_interface") {
+		cfg.AutoSelectInterface = defaults.AutoSelectInterface
+	}
 
 	// Fill in missing numeric defaults (0 means not set for these)
 	if cfg.AdvertiseInterval <= 0 {
@@ -269,6 +276,10 @@ func Save(cfg Config) error {
 		fmt.Sprintf("logging_enabled = %t", cfg.LoggingEnabled),
 		"# log_directory is where log files are stored (empty = default location)",
 		fmt.Sprintf("log_directory = %q", cfg.LogDirectory),
+		"",
+		"# Interface Selection",
+		"# auto_select_interface skips the picker when only one wired interface is available",
+		fmt.Sprintf("auto_select_interface = %t", cfg.AutoSelectInterface),
 		"",
 	}
 
