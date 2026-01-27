@@ -1,3 +1,4 @@
+// Package capture provides packet capture functionality using pcap.
 package capture
 
 import (

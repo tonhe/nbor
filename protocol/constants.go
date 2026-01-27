@@ -1,3 +1,4 @@
+// Package protocol provides shared CDP and LLDP protocol constants and utilities.
 package protocol
 
 import "net"

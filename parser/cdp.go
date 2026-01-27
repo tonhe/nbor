@@ -1,3 +1,4 @@
+// Package parser provides CDP and LLDP packet parsing.
 package parser
 
 import (

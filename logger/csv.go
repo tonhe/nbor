@@ -1,3 +1,4 @@
+// Package logger provides CSV logging for neighbor discovery events.
 package logger
 
 import (

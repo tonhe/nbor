@@ -7,8 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/google/gopacket/pcap"
-
 	"nbor/types"
 )
 
@@ -148,49 +146,27 @@ func getWiFiInterfaces() map[string]bool {
 	return wifiInterfaces
 }
 
-// isVirtualOrWirelessDarwin checks if an interface is virtual or wireless on macOS
-func isVirtualOrWirelessDarwin(name string) bool {
-	excludePrefixes := []string{
-		"lo",      // loopback
-		"gif",     // generic tunnel
-		"stf",     // 6to4 tunnel
-		"awdl",    // Apple Wireless Direct Link
-		"llw",     // Low Latency WLAN
-		"utun",    // User tunnel
-		"bridge",  // Bridge
-		"ap",      // Access point
-		"vmnet",   // VMware
-		"vboxnet", // VirtualBox
-		"anpi",    // Apple Network Plugin Interface
-		"feth",    // Forwarding ethernet
-		"ipsec",   // IPSec tunnel
-		"ppp",     // PPP
-	}
-
-	name = strings.ToLower(name)
-	for _, prefix := range excludePrefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-
-	return false
+// darwinExcludedPrefixes lists interface prefixes to exclude on macOS
+var darwinExcludedPrefixes = []string{
+	"lo",      // loopback
+	"gif",     // generic tunnel
+	"stf",     // 6to4 tunnel
+	"awdl",    // Apple Wireless Direct Link
+	"llw",     // Low Latency WLAN
+	"utun",    // User tunnel
+	"bridge",  // Bridge
+	"ap",      // Access point
+	"vmnet",   // VMware
+	"vboxnet", // VirtualBox
+	"anpi",    // Apple Network Plugin Interface
+	"feth",    // Forwarding ethernet
+	"ipsec",   // IPSec tunnel
+	"ppp",     // PPP
 }
 
-// canOpenInterface checks if pcap can open the interface
-func canOpenInterface(name string) bool {
-	devices, err := pcap.FindAllDevs()
-	if err != nil {
-		return false
-	}
-
-	for _, dev := range devices {
-		if dev.Name == name {
-			return true
-		}
-	}
-
-	return false
+// isVirtualOrWirelessDarwin checks if an interface is virtual or wireless on macOS
+func isVirtualOrWirelessDarwin(name string) bool {
+	return hasExcludedPrefix(name, darwinExcludedPrefixes)
 }
 
 // getInterfaceSpeed attempts to get link speed via system_profiler (expensive, so we skip)
@@ -255,6 +231,24 @@ func GetAllInterfaces() ([]types.InterfaceInfo, error) {
 	return result, nil
 }
 
+// darwinPrefixReasons maps interface prefixes to filter reasons
+var darwinPrefixReasons = map[string]string{
+	"lo":      "loopback interface",
+	"gif":     "tunnel interface",
+	"stf":     "tunnel interface",
+	"awdl":    "Apple Wireless Direct Link",
+	"llw":     "Low Latency WLAN interface",
+	"utun":    "tunnel interface",
+	"bridge":  "bridge interface",
+	"ap":      "access point interface",
+	"vmnet":   "virtual interface (VMware)",
+	"vboxnet": "virtual interface (VirtualBox)",
+	"anpi":    "Apple Network Plugin Interface",
+	"feth":    "forwarding ethernet interface",
+	"ipsec":   "IPSec tunnel interface",
+	"ppp":     "PPP interface",
+}
+
 // GetFilterReason returns why an interface was filtered, or empty string if not filtered
 func GetFilterReason(name string) string {
 	// Check WiFi interfaces
@@ -264,29 +258,8 @@ func GetFilterReason(name string) string {
 	}
 
 	// Check virtual/wireless patterns
-	nameLower := strings.ToLower(name)
-
-	virtualPrefixes := map[string]string{
-		"lo":      "loopback interface",
-		"gif":     "tunnel interface",
-		"stf":     "tunnel interface",
-		"awdl":    "Apple Wireless Direct Link",
-		"llw":     "Low Latency WLAN interface",
-		"utun":    "tunnel interface",
-		"bridge":  "bridge interface",
-		"ap":      "access point interface",
-		"vmnet":   "virtual interface (VMware)",
-		"vboxnet": "virtual interface (VirtualBox)",
-		"anpi":    "Apple Network Plugin Interface",
-		"feth":    "forwarding ethernet interface",
-		"ipsec":   "IPSec tunnel interface",
-		"ppp":     "PPP interface",
-	}
-
-	for prefix, reason := range virtualPrefixes {
-		if strings.HasPrefix(nameLower, prefix) {
-			return reason
-		}
+	if reason := findPrefixReason(name, darwinPrefixReasons); reason != "" {
+		return reason
 	}
 
 	// Check if pcap can't open it

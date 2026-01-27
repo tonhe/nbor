@@ -126,14 +126,7 @@ func (m ConfigMenuModel) updateBroadcast(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // findBroadcastPosition returns the row and column position for the current cursor
 func (m *ConfigMenuModel) findBroadcastPosition(rows [][]int) (row, col int) {
-	for r, rowFields := range rows {
-		for c, field := range rowFields {
-			if field == m.subCursor {
-				return r, c
-			}
-		}
-	}
-	return 0, 0
+	return findRowPosition(m.subCursor, rows)
 }
 
 func (m *ConfigMenuModel) blurAllBroadcastInputs() {
@@ -162,28 +155,7 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	var b strings.Builder
 
 	sectionStyle := lipgloss.NewStyle().Foreground(theme.Base0D).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(theme.Base05)
-	focusedStyle := lipgloss.NewStyle().Foreground(theme.Base0B).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(theme.Base03)
-	cursorStyle := lipgloss.NewStyle().Foreground(theme.Base0C).Bold(true)
-
-	checkbox := func(checked, focused bool) string {
-		style := labelStyle
-		if focused {
-			style = focusedStyle
-		}
-		if checked {
-			return style.Render("[x]")
-		}
-		return style.Render("[ ]")
-	}
-
-	cursor := func(focused bool) string {
-		if focused {
-			return cursorStyle.Render(">") + " "
-		}
-		return "  "
-	}
 
 	b.WriteString("\n")
 
@@ -194,24 +166,16 @@ func (m ConfigMenuModel) renderBroadcast() string {
 
 	// System Name
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 0))
-	if m.subCursor == 0 {
-		b.WriteString(focusedStyle.Render("System Name"))
-	} else {
-		b.WriteString(labelStyle.Render("System Name"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 0, theme))
+	b.WriteString(renderLabel("System Name", m.subCursor == 0, theme))
 	b.WriteString("    ")
 	b.WriteString(m.systemNameInput.View())
 	b.WriteString("\n")
 
 	// Description
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 1))
-	if m.subCursor == 1 {
-		b.WriteString(focusedStyle.Render("Description"))
-	} else {
-		b.WriteString(labelStyle.Render("Description"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 1, theme))
+	b.WriteString(renderLabel("Description", m.subCursor == 1, theme))
 	b.WriteString("    ")
 	b.WriteString(m.systemDescInput.View())
 	b.WriteString("\n\n")
@@ -223,37 +187,25 @@ func (m ConfigMenuModel) renderBroadcast() string {
 
 	// CDP Broadcast / LLDP Broadcast (same row)
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 2))
-	b.WriteString(checkbox(m.cdpBroadcast, m.subCursor == 2))
+	b.WriteString(renderCursor(m.subCursor == 2, theme))
+	b.WriteString(renderCheckbox(m.cdpBroadcast, m.subCursor == 2, theme))
 	b.WriteString(" ")
-	if m.subCursor == 2 {
-		b.WriteString(focusedStyle.Render("CDP"))
-	} else {
-		b.WriteString(labelStyle.Render("CDP"))
-	}
+	b.WriteString(renderLabel("CDP", m.subCursor == 2, theme))
 	b.WriteString("     ")
 
 	// LLDP Broadcast
-	b.WriteString(cursor(m.subCursor == 3))
-	b.WriteString(checkbox(m.lldpBroadcast, m.subCursor == 3))
+	b.WriteString(renderCursor(m.subCursor == 3, theme))
+	b.WriteString(renderCheckbox(m.lldpBroadcast, m.subCursor == 3, theme))
 	b.WriteString(" ")
-	if m.subCursor == 3 {
-		b.WriteString(focusedStyle.Render("LLDP"))
-	} else {
-		b.WriteString(labelStyle.Render("LLDP"))
-	}
+	b.WriteString(renderLabel("LLDP", m.subCursor == 3, theme))
 	b.WriteString("\n")
 
 	// Start on Launch
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 4))
-	b.WriteString(checkbox(m.broadcastOnStartup, m.subCursor == 4))
+	b.WriteString(renderCursor(m.subCursor == 4, theme))
+	b.WriteString(renderCheckbox(m.broadcastOnStartup, m.subCursor == 4, theme))
 	b.WriteString(" ")
-	if m.subCursor == 4 {
-		b.WriteString(focusedStyle.Render("Start on launch"))
-	} else {
-		b.WriteString(labelStyle.Render("Start on launch"))
-	}
+	b.WriteString(renderLabel("Start on launch", m.subCursor == 4, theme))
 	b.WriteString("\n\n")
 
 	// Timing
@@ -263,12 +215,8 @@ func (m ConfigMenuModel) renderBroadcast() string {
 
 	// Interval
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 5))
-	if m.subCursor == 5 {
-		b.WriteString(focusedStyle.Render("Interval"))
-	} else {
-		b.WriteString(labelStyle.Render("Interval"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 5, theme))
+	b.WriteString(renderLabel("Interval", m.subCursor == 5, theme))
 	b.WriteString("       ")
 	b.WriteString(m.intervalInput.View())
 	b.WriteString(dimStyle.Render(" seconds"))
@@ -276,12 +224,8 @@ func (m ConfigMenuModel) renderBroadcast() string {
 
 	// TTL
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 6))
-	if m.subCursor == 6 {
-		b.WriteString(focusedStyle.Render("TTL"))
-	} else {
-		b.WriteString(labelStyle.Render("TTL"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 6, theme))
+	b.WriteString(renderLabel("TTL", m.subCursor == 6, theme))
 	b.WriteString("            ")
 	b.WriteString(m.ttlInput.View())
 	b.WriteString(dimStyle.Render(" seconds"))
@@ -294,46 +238,30 @@ func (m ConfigMenuModel) renderBroadcast() string {
 
 	// Router / Bridge / Station (same row)
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 7))
-	b.WriteString(checkbox(m.capRouter, m.subCursor == 7))
+	b.WriteString(renderCursor(m.subCursor == 7, theme))
+	b.WriteString(renderCheckbox(m.capRouter, m.subCursor == 7, theme))
 	b.WriteString(" ")
-	if m.subCursor == 7 {
-		b.WriteString(focusedStyle.Render("Router"))
-	} else {
-		b.WriteString(labelStyle.Render("Router"))
-	}
+	b.WriteString(renderLabel("Router", m.subCursor == 7, theme))
 	b.WriteString("  ")
 
 	// Bridge
-	b.WriteString(cursor(m.subCursor == 8))
-	b.WriteString(checkbox(m.capBridge, m.subCursor == 8))
+	b.WriteString(renderCursor(m.subCursor == 8, theme))
+	b.WriteString(renderCheckbox(m.capBridge, m.subCursor == 8, theme))
 	b.WriteString(" ")
-	if m.subCursor == 8 {
-		b.WriteString(focusedStyle.Render("Bridge"))
-	} else {
-		b.WriteString(labelStyle.Render("Bridge"))
-	}
+	b.WriteString(renderLabel("Bridge", m.subCursor == 8, theme))
 	b.WriteString("  ")
 
 	// Station
-	b.WriteString(cursor(m.subCursor == 9))
-	b.WriteString(checkbox(m.capStation, m.subCursor == 9))
+	b.WriteString(renderCursor(m.subCursor == 9, theme))
+	b.WriteString(renderCheckbox(m.capStation, m.subCursor == 9, theme))
 	b.WriteString(" ")
-	if m.subCursor == 9 {
-		b.WriteString(focusedStyle.Render("Station"))
-	} else {
-		b.WriteString(labelStyle.Render("Station"))
-	}
+	b.WriteString(renderLabel("Station", m.subCursor == 9, theme))
 	b.WriteString("\n\n")
 
 	// Back button
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 10))
-	if m.subCursor == 10 {
-		b.WriteString(focusedStyle.Render("[Back]"))
-	} else {
-		b.WriteString(labelStyle.Render("[Back]"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 10, theme))
+	b.WriteString(renderLabel("[Back]", m.subCursor == 10, theme))
 	b.WriteString("\n")
 
 	return b.String()

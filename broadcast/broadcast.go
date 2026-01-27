@@ -1,3 +1,4 @@
+// Package broadcast provides CDP and LLDP frame generation and transmission.
 package broadcast
 
 import (

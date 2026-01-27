@@ -1,3 +1,4 @@
+// Package config provides configuration loading, saving, and management.
 package config
 
 import (
@@ -205,6 +206,9 @@ func Load() (Config, error) {
 	// StaleRemovalTime: 0 is valid (means never remove), so don't fill default
 	// LogDirectory: empty is valid (means use default location)
 
+	// Validate and fix any out-of-range values
+	cfg.ValidateAndFix()
+
 	return cfg, nil
 }
 
@@ -302,6 +306,72 @@ func formatStringSlice(s []string) string {
 		quoted[i] = fmt.Sprintf("%q", v)
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// Validate checks configuration values and returns any validation errors
+// Returns nil if all values are valid
+func (c *Config) Validate() []string {
+	var errors []string
+	defaults := DefaultConfig()
+
+	// AdvertiseInterval: 1-300 seconds
+	if c.AdvertiseInterval < 1 || c.AdvertiseInterval > 300 {
+		errors = append(errors, fmt.Sprintf("advertise_interval %d out of range (1-300), using default %d",
+			c.AdvertiseInterval, defaults.AdvertiseInterval))
+	}
+
+	// TTL: 1-65535 seconds
+	if c.TTL < 1 || c.TTL > 65535 {
+		errors = append(errors, fmt.Sprintf("ttl %d out of range (1-65535), using default %d",
+			c.TTL, defaults.TTL))
+	}
+
+	// StalenessTimeout: 0-86400 seconds (0 = disable staleness)
+	if c.StalenessTimeout < 0 || c.StalenessTimeout > 86400 {
+		errors = append(errors, fmt.Sprintf("staleness_timeout %d out of range (0-86400), using default %d",
+			c.StalenessTimeout, defaults.StalenessTimeout))
+	}
+
+	// StaleRemovalTime: 0-86400 seconds (0 = never remove)
+	if c.StaleRemovalTime < 0 || c.StaleRemovalTime > 86400 {
+		errors = append(errors, fmt.Sprintf("stale_removal_time %d out of range (0-86400), using default %d",
+			c.StaleRemovalTime, defaults.StaleRemovalTime))
+	}
+
+	return errors
+}
+
+// ValidateAndFix checks configuration values and fixes invalid ones to defaults
+// Returns a list of fields that were fixed
+func (c *Config) ValidateAndFix() []string {
+	var fixed []string
+	defaults := DefaultConfig()
+
+	// AdvertiseInterval: 1-300 seconds
+	if c.AdvertiseInterval < 1 || c.AdvertiseInterval > 300 {
+		fixed = append(fixed, fmt.Sprintf("advertise_interval: %d -> %d", c.AdvertiseInterval, defaults.AdvertiseInterval))
+		c.AdvertiseInterval = defaults.AdvertiseInterval
+	}
+
+	// TTL: 1-65535 seconds
+	if c.TTL < 1 || c.TTL > 65535 {
+		fixed = append(fixed, fmt.Sprintf("ttl: %d -> %d", c.TTL, defaults.TTL))
+		c.TTL = defaults.TTL
+	}
+
+	// StalenessTimeout: 0-86400 seconds
+	if c.StalenessTimeout < 0 || c.StalenessTimeout > 86400 {
+		fixed = append(fixed, fmt.Sprintf("staleness_timeout: %d -> %d", c.StalenessTimeout, defaults.StalenessTimeout))
+		c.StalenessTimeout = defaults.StalenessTimeout
+	}
+
+	// StaleRemovalTime: 0-86400 seconds
+	if c.StaleRemovalTime < 0 || c.StaleRemovalTime > 86400 {
+		fixed = append(fixed, fmt.Sprintf("stale_removal_time: %d -> %d", c.StaleRemovalTime, defaults.StaleRemovalTime))
+		c.StaleRemovalTime = defaults.StaleRemovalTime
+	}
+
+	return fixed
 }
 
 // EnsureConfigExists creates the default config file if it doesn't exist

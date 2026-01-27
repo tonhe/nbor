@@ -1,3 +1,4 @@
+// Package types provides shared data structures for neighbor information.
 package types
 
 import (

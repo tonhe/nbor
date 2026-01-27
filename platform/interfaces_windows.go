@@ -102,62 +102,52 @@ func GetEthernetInterfaces() ([]types.InterfaceInfo, error) {
 	return result, nil
 }
 
+// windowsExcludedKeywords lists keywords to exclude on Windows
+var windowsExcludedKeywords = []string{
+	"wireless",
+	"wi-fi",
+	"wifi",
+	"bluetooth",
+	"virtual",
+	"vpn",
+	"loopback",
+	"tunnel",
+	"miniport",
+	"wan miniport",
+	"microsoft",
+	"hyper-v",
+	"vmware",
+	"virtualbox",
+	"npcap",
+	"filter",
+	"pseudo",
+}
+
+// windowsEthernetKeywords lists keywords that identify Ethernet adapters
+var windowsEthernetKeywords = []string{
+	"ethernet",
+	"gbe",
+	"nic",
+	"gigabit",
+	"10/100",
+	"realtek",
+	"intel",
+	"broadcom",
+	"marvell",
+	"network adapter",
+	"pci",
+	"usb ethernet",
+	"usb3.0 to ethernet",
+}
+
 // isExcludedInterface checks if the interface description indicates a non-physical interface
 func isExcludedInterface(desc string) bool {
-	excludeKeywords := []string{
-		"wireless",
-		"wi-fi",
-		"wifi",
-		"bluetooth",
-		"virtual",
-		"vpn",
-		"loopback",
-		"tunnel",
-		"miniport",
-		"wan miniport",
-		"microsoft",
-		"hyper-v",
-		"vmware",
-		"virtualbox",
-		"npcap",
-		"filter",
-		"pseudo",
-	}
-
-	for _, keyword := range excludeKeywords {
-		if strings.Contains(desc, keyword) {
-			return true
-		}
-	}
-
-	return false
+	return hasExcludedKeyword(desc, windowsExcludedKeywords)
 }
 
 // isEthernetInterface checks if the interface description indicates an Ethernet adapter
 func isEthernetInterface(desc string) bool {
-	includeKeywords := []string{
-		"ethernet",
-		"gbe",
-		"nic",
-		"gigabit",
-		"10/100",
-		"realtek",
-		"intel",
-		"broadcom",
-		"marvell",
-		"network adapter",
-		"pci",
-		"usb ethernet",
-		"usb3.0 to ethernet",
-	}
-
-	for _, keyword := range includeKeywords {
-		if strings.Contains(desc, keyword) {
-			return true
-		}
-	}
-
-	return false
+	return hasExcludedKeyword(desc, windowsEthernetKeywords)
 }
 
 // findNetInterfaceByPcap finds the net.Interface matching a pcap device
@@ -316,53 +306,36 @@ func GetAllInterfaces() ([]types.InterfaceInfo, error) {
 	return result, nil
 }
 
+// windowsKeywordReasons maps exclusion keywords to filter reasons
+var windowsKeywordReasons = map[string]string{
+	"wireless":     "WiFi interface",
+	"wi-fi":        "WiFi interface",
+	"wifi":         "WiFi interface",
+	"bluetooth":    "Bluetooth interface",
+	"virtual":      "virtual interface",
+	"vpn":          "VPN interface",
+	"loopback":     "loopback interface",
+	"tunnel":       "tunnel interface",
+	"miniport":     "WAN miniport",
+	"wan miniport": "WAN miniport",
+	"microsoft":    "Microsoft virtual adapter",
+	"hyper-v":      "virtual interface (Hyper-V)",
+	"vmware":       "virtual interface (VMware)",
+	"virtualbox":   "virtual interface (VirtualBox)",
+	"npcap":        "Npcap loopback adapter",
+	"filter":       "filter driver",
+	"pseudo":       "pseudo interface",
+}
+
 // GetFilterReason returns why an interface was filtered, or empty string if not filtered
 func GetFilterReason(name string) string {
-	nameLower := strings.ToLower(name)
-
 	// Check exclusion keywords
-	exclusionReasons := map[string]string{
-		"wireless":   "WiFi interface",
-		"wi-fi":      "WiFi interface",
-		"wifi":       "WiFi interface",
-		"bluetooth":  "Bluetooth interface",
-		"virtual":    "virtual interface",
-		"vpn":        "VPN interface",
-		"loopback":   "loopback interface",
-		"tunnel":     "tunnel interface",
-		"miniport":   "WAN miniport",
-		"wan miniport": "WAN miniport",
-		"microsoft":  "Microsoft virtual adapter",
-		"hyper-v":    "virtual interface (Hyper-V)",
-		"vmware":     "virtual interface (VMware)",
-		"virtualbox": "virtual interface (VirtualBox)",
-		"npcap":      "Npcap loopback adapter",
-		"filter":     "filter driver",
-		"pseudo":     "pseudo interface",
-	}
-
-	for keyword, reason := range exclusionReasons {
-		if strings.Contains(nameLower, keyword) {
-			return reason
-		}
+	if reason := findKeywordReason(name, windowsKeywordReasons); reason != "" {
+		return reason
 	}
 
 	// Check if it's not an Ethernet-like interface
-	ethernetKeywords := []string{
-		"ethernet", "gbe", "nic", "gigabit", "10/100",
-		"realtek", "intel", "broadcom", "marvell",
-		"network adapter", "pci", "usb ethernet", "usb3.0 to ethernet",
-	}
-
-	isEthernet := false
-	for _, keyword := range ethernetKeywords {
-		if strings.Contains(nameLower, keyword) {
-			isEthernet = true
-			break
-		}
-	}
-
-	if !isEthernet {
+	if !hasExcludedKeyword(name, windowsEthernetKeywords) {
 		return "not recognized as Ethernet adapter"
 	}
 

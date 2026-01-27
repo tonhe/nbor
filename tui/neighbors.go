@@ -1,41 +1,31 @@
 package tui
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"nbor/config"
-	"nbor/logger"
 	"nbor/types"
-	"nbor/version"
 )
-
-// Column definition for responsive table
-type column struct {
-	name     string
-	width    int
-	priority int // Lower = higher priority (shown first)
-	getter   func(*types.Neighbor) string
-}
 
 // NeighborTableModel is the model for the neighbor table view
 type NeighborTableModel struct {
-	store        *types.NeighborStore
-	ifaceInfo    types.InterfaceInfo
-	config       *config.Config
-	width        int
-	height       int
-	styles       Styles
-	scrollOffset int
-	flashRows    map[string]time.Time // Track rows to flash
-	logPath      string
-	broadcasting bool // Whether broadcasting is currently active
+	store         *types.NeighborStore
+	ifaceInfo     types.InterfaceInfo
+	config        *config.Config
+	width         int
+	height        int
+	styles        Styles
+	scrollOffset  int
+	selectedIndex int                   // Currently selected row index
+	showDetail    bool                  // Whether detail popup is visible
+	flashRows     map[string]time.Time  // Track rows to flash
+	logPath       string
+	broadcasting  bool // Whether broadcasting is currently active
 }
 
 // NewNeighborTable creates a new neighbor table model
@@ -45,13 +35,15 @@ func NewNeighborTable(store *types.NeighborStore, ifaceInfo types.InterfaceInfo,
 	broadcasting := cfg.BroadcastOnStartup && (cfg.CDPBroadcast || cfg.LLDPBroadcast)
 
 	return NeighborTableModel{
-		store:        store,
-		ifaceInfo:    ifaceInfo,
-		config:       cfg,
-		styles:       DefaultStyles,
-		flashRows:    make(map[string]time.Time),
-		logPath:      logPath,
-		broadcasting: broadcasting,
+		store:         store,
+		ifaceInfo:     ifaceInfo,
+		config:        cfg,
+		styles:        DefaultStyles,
+		flashRows:     make(map[string]time.Time),
+		logPath:       logPath,
+		broadcasting:  broadcasting,
+		selectedIndex: 0,
+		showDetail:    false,
 	}
 }
 
@@ -82,6 +74,8 @@ type neighborTableKeyMap struct {
 	Quit      key.Binding
 	Up        key.Binding
 	Down      key.Binding
+	Select    key.Binding
+	Back      key.Binding
 }
 
 var neighborKeys = neighborTableKeyMap{
@@ -103,11 +97,19 @@ var neighborKeys = neighborTableKeyMap{
 	),
 	Up: key.NewBinding(
 		key.WithKeys("up", "k"),
-		key.WithHelp("↑", "scroll up"),
+		key.WithHelp("↑/k", "move up"),
 	),
 	Down: key.NewBinding(
 		key.WithKeys("down", "j"),
-		key.WithHelp("↓", "scroll down"),
+		key.WithHelp("↓/j", "move down"),
+	),
+	Select: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "view details"),
+	),
+	Back: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "close"),
 	),
 }
 
@@ -120,42 +122,11 @@ type ToggleBroadcastMsg struct {
 func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, neighborKeys.Refresh):
-			// Clear stale entries and refresh
-			m.store.ClearNewFlags()
-			m.flashRows = make(map[string]time.Time)
-			m.scrollOffset = 0
-			// Force a screen clear/redraw
-			return m, tea.ClearScreen
-		case key.Matches(msg, neighborKeys.Broadcast):
-			// Toggle broadcasting on/off (runtime only, doesn't change protocol config)
-			m.broadcasting = !m.broadcasting
-			// Send message to main to start/stop broadcaster
-			return m, func() tea.Msg {
-				return ToggleBroadcastMsg{Enabled: m.broadcasting}
-			}
-		case key.Matches(msg, neighborKeys.Config):
-			// Open configuration menu
-			return m, func() tea.Msg {
-				return GoToConfigMenuMsg{}
-			}
-		case key.Matches(msg, neighborKeys.Quit):
-			return m, tea.Quit
-		case key.Matches(msg, neighborKeys.Up):
-			if m.scrollOffset > 0 {
-				m.scrollOffset--
-			}
-		case key.Matches(msg, neighborKeys.Down):
-			neighbors := m.getFilteredNeighbors()
-			maxScroll := len(neighbors) - m.visibleRows()
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			if m.scrollOffset < maxScroll {
-				m.scrollOffset++
-			}
+		// Handle detail popup mode separately
+		if m.showDetail {
+			return m.updateDetailMode(msg)
 		}
+		return m.updateTableMode(msg)
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -180,6 +151,12 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 			}
 		}
 
+		// Ensure selectedIndex stays valid if neighbors were removed
+		neighbors := m.getFilteredNeighbors()
+		if m.selectedIndex >= len(neighbors) && len(neighbors) > 0 {
+			m.selectedIndex = len(neighbors) - 1
+		}
+
 		return m, tickCmd()
 
 	case NewNeighborMsg:
@@ -187,6 +164,91 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 		m.flashRows[msg.Neighbor.NeighborKey()] = time.Now()
 	}
 
+	return m, nil
+}
+
+// updateTableMode handles key events when viewing the table
+func (m NeighborTableModel) updateTableMode(msg tea.KeyMsg) (NeighborTableModel, tea.Cmd) {
+	neighbors := m.getFilteredNeighbors()
+	neighborCount := len(neighbors)
+
+	switch {
+	case key.Matches(msg, neighborKeys.Refresh):
+		// Clear stale entries and refresh
+		m.store.ClearNewFlags()
+		m.flashRows = make(map[string]time.Time)
+		m.scrollOffset = 0
+		m.selectedIndex = 0
+		// Force a screen clear/redraw
+		return m, tea.ClearScreen
+
+	case key.Matches(msg, neighborKeys.Broadcast):
+		// Toggle broadcasting on/off (runtime only, doesn't change protocol config)
+		m.broadcasting = !m.broadcasting
+		// Send message to main to start/stop broadcaster
+		return m, func() tea.Msg {
+			return ToggleBroadcastMsg{Enabled: m.broadcasting}
+		}
+
+	case key.Matches(msg, neighborKeys.Config):
+		// Open configuration menu
+		return m, func() tea.Msg {
+			return GoToConfigMenuMsg{}
+		}
+
+	case key.Matches(msg, neighborKeys.Quit):
+		return m, tea.Quit
+
+	case key.Matches(msg, neighborKeys.Up):
+		if neighborCount > 0 {
+			m.selectedIndex--
+			if m.selectedIndex < 0 {
+				m.selectedIndex = neighborCount - 1
+				// Scroll to show the last item
+				maxScroll := neighborCount - m.visibleRows()
+				if maxScroll > 0 {
+					m.scrollOffset = maxScroll
+				}
+			}
+			// Ensure selected item is visible (scroll up if needed)
+			if m.selectedIndex < m.scrollOffset {
+				m.scrollOffset = m.selectedIndex
+			}
+		}
+
+	case key.Matches(msg, neighborKeys.Down):
+		if neighborCount > 0 {
+			m.selectedIndex++
+			if m.selectedIndex >= neighborCount {
+				m.selectedIndex = 0
+				m.scrollOffset = 0
+			}
+			// Ensure selected item is visible (scroll down if needed)
+			visibleEnd := m.scrollOffset + m.visibleRows() - 1
+			if m.selectedIndex > visibleEnd {
+				m.scrollOffset = m.selectedIndex - m.visibleRows() + 1
+			}
+		}
+
+	case key.Matches(msg, neighborKeys.Select):
+		// Open detail popup if we have a valid selection
+		if neighborCount > 0 && m.selectedIndex < neighborCount {
+			m.showDetail = true
+		}
+	}
+
+	return m, nil
+}
+
+// updateDetailMode handles key events when viewing the detail popup
+func (m NeighborTableModel) updateDetailMode(msg tea.KeyMsg) (NeighborTableModel, tea.Cmd) {
+	switch {
+	case key.Matches(msg, neighborKeys.Back), key.Matches(msg, neighborKeys.Select):
+		// Close detail popup
+		m.showDetail = false
+	case key.Matches(msg, neighborKeys.Quit):
+		return m, tea.Quit
+	}
 	return m, nil
 }
 
@@ -198,380 +260,6 @@ func (m NeighborTableModel) visibleRows() int {
 		available = 1
 	}
 	return available
-}
-
-// View renders the neighbor table
-func (m NeighborTableModel) View() string {
-	// Calculate content heights
-	header := m.renderHeader()
-	table := m.renderTable()
-	footer := m.renderFooter()
-
-	// Calculate how many blank lines we need to push footer to bottom
-	headerLines := strings.Count(header, "\n") + 1
-	tableLines := strings.Count(table, "\n")
-	footerLines := 1
-
-	usedLines := headerLines + tableLines + footerLines
-	remainingLines := m.height - usedLines
-	if remainingLines < 0 {
-		remainingLines = 0
-	}
-
-	// Build the view with padding to push footer to bottom
-	var b strings.Builder
-	b.WriteString(header)
-	b.WriteString("\n")
-	b.WriteString(table)
-	b.WriteString(strings.Repeat("\n", remainingLines))
-	b.WriteString(footer)
-
-	return b.String()
-}
-
-// renderHeader renders the application header with colors spread across width
-func (m NeighborTableModel) renderHeader() string {
-	theme := DefaultTheme
-	bg := theme.Base01
-
-	// Single space with background for joining elements
-	sp := lipgloss.NewStyle().Background(bg).Render(" ")
-
-	// Left side: app name and version
-	nameStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0C).
-		Background(bg).
-		Bold(true)
-	versionStyle := lipgloss.NewStyle().
-		Foreground(theme.Base03).
-		Background(bg)
-	leftPart := nameStyle.Render("nbor") + sp + versionStyle.Render("v"+version.Version)
-
-	// Middle: interface info
-	ifaceStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0D).
-		Background(bg).
-		Bold(true)
-	macStyle := lipgloss.NewStyle().
-		Foreground(theme.Base05).
-		Background(bg)
-	speedStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0A).
-		Background(bg)
-
-	mac := ""
-	if m.ifaceInfo.MAC != nil {
-		mac = m.ifaceInfo.MAC.String()
-	}
-
-	middlePart := ifaceStyle.Render(m.ifaceInfo.Name)
-	if mac != "" {
-		middlePart += sp + macStyle.Render(mac)
-	}
-	if m.ifaceInfo.Speed != "" {
-		middlePart += sp + speedStyle.Render(m.ifaceInfo.Speed)
-	}
-
-	// Right side: neighbor count
-	countStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0B).
-		Background(bg).
-		Bold(true)
-	labelStyle := lipgloss.NewStyle().
-		Foreground(theme.Base04).
-		Background(bg)
-	count := m.store.Count()
-	rightPart := countStyle.Render(fmt.Sprintf("%d", count)) + sp + labelStyle.Render("neighbor(s)")
-
-	// Calculate spacing to spread across width
-	leftLen := lipgloss.Width(leftPart)
-	middleLen := lipgloss.Width(middlePart)
-	rightLen := lipgloss.Width(rightPart)
-
-	// Account for padding (1 on each side)
-	availableWidth := m.width - 2
-	totalContentWidth := leftLen + middleLen + rightLen
-
-	// Distribute remaining space
-	remainingSpace := availableWidth - totalContentWidth
-	if remainingSpace < 2 {
-		remainingSpace = 2
-	}
-
-	leftGap := remainingSpace / 2
-	rightGap := remainingSpace - leftGap
-
-	// Build header content with background-colored spaces
-	spaceStyle := lipgloss.NewStyle().Background(bg)
-	headerContent := leftPart + spaceStyle.Render(strings.Repeat(" ", leftGap)) + middlePart + spaceStyle.Render(strings.Repeat(" ", rightGap)) + rightPart
-
-	// Apply background style to container
-	headerStyle := lipgloss.NewStyle().
-		Background(bg).
-		Padding(0, 1).
-		Width(m.width)
-
-	return headerStyle.Render(headerContent)
-}
-
-// getVisibleColumns returns columns that fit in the current width
-func (m NeighborTableModel) getVisibleColumns() []column {
-	// Define all columns with priorities (lower = shown first)
-	// Priority order: hostname, port, last seen, mgmt IP, platform, location, protocol, capabilities
-	allColumns := []column{
-		{name: "Hostname", width: 20, priority: 1, getter: func(n *types.Neighbor) string { return n.Hostname }},
-		{name: "Port", width: 12, priority: 2, getter: func(n *types.Neighbor) string { return n.PortID }},
-		{name: "Last Seen", width: 10, priority: 3, getter: func(n *types.Neighbor) string { return logger.FormatDuration(n.LastSeen) }},
-		{name: "Mgmt IP", width: 15, priority: 4, getter: func(n *types.Neighbor) string {
-			if n.ManagementIP != nil {
-				return n.ManagementIP.String()
-			}
-			return ""
-		}},
-		{name: "Platform", width: 18, priority: 5, getter: func(n *types.Neighbor) string { return n.Platform }},
-		{name: "Location", width: 15, priority: 6, getter: func(n *types.Neighbor) string { return n.Location }},
-		{name: "Proto", width: 9, priority: 7, getter: func(n *types.Neighbor) string { return string(n.Protocol) }},
-		{name: "Capabilities", width: 15, priority: 8, getter: func(n *types.Neighbor) string { return logger.FormatCapabilities(n.Capabilities) }},
-	}
-
-	// Sort by priority
-	sort.Slice(allColumns, func(i, j int) bool {
-		return allColumns[i].priority < allColumns[j].priority
-	})
-
-	// Calculate which columns fit
-	availableWidth := m.width - 2 // Padding
-	usedWidth := 0
-	var visibleColumns []column
-
-	for _, col := range allColumns {
-		colWidth := col.width + 2 // Add spacing between columns
-		if usedWidth+colWidth <= availableWidth {
-			visibleColumns = append(visibleColumns, col)
-			usedWidth += colWidth
-		}
-	}
-
-	// Sort visible columns back to a logical display order
-	// Hostname, Port, Mgmt IP, Platform, Location, Capabilities, Proto, Last Seen
-	displayOrder := map[string]int{
-		"Hostname":     1,
-		"Port":         2,
-		"Mgmt IP":      3,
-		"Platform":     4,
-		"Location":     5,
-		"Capabilities": 6,
-		"Proto":        7,
-		"Last Seen":    8,
-	}
-
-	sort.Slice(visibleColumns, func(i, j int) bool {
-		return displayOrder[visibleColumns[i].name] < displayOrder[visibleColumns[j].name]
-	})
-
-	return visibleColumns
-}
-
-// renderTable renders the neighbor table
-func (m NeighborTableModel) renderTable() string {
-	var b strings.Builder
-
-	neighbors := m.getFilteredNeighbors()
-	columns := m.getVisibleColumns()
-
-	// Sort neighbors by hostname
-	sort.Slice(neighbors, func(i, j int) bool {
-		return neighbors[i].Hostname < neighbors[j].Hostname
-	})
-
-	// Blank line after header
-	b.WriteString("\n")
-
-	// Table header
-	var headerCells []string
-	for _, col := range columns {
-		headerCells = append(headerCells, truncate(col.name, col.width))
-	}
-
-	headerRow := strings.Join(headerCells, "  ")
-	b.WriteString(m.styles.TableHeader.Render(headerRow))
-	b.WriteString("\n")
-
-	if len(neighbors) == 0 {
-		// Show listening message
-		b.WriteString("\n")
-		listening := m.styles.StatusListening.Render("  Listening for CDP and LLDP packets...")
-		b.WriteString(listening)
-		b.WriteString("\n\n")
-		hint := m.styles.StatusInfo.Render("  Neighbors will appear here as they announce themselves.")
-		b.WriteString(hint)
-		return b.String()
-	}
-
-	// Apply scroll offset
-	visibleNeighbors := neighbors
-	if m.scrollOffset > 0 && m.scrollOffset < len(neighbors) {
-		visibleNeighbors = neighbors[m.scrollOffset:]
-	}
-
-	// Limit to visible rows
-	maxRows := m.visibleRows()
-	if len(visibleNeighbors) > maxRows {
-		visibleNeighbors = visibleNeighbors[:maxRows]
-	}
-
-	// Render rows
-	for _, n := range visibleNeighbors {
-		b.WriteString(m.renderNeighborRow(n, columns))
-		b.WriteString("\n")
-	}
-
-	// Scroll indicator
-	if len(neighbors) > maxRows {
-		scrollInfo := fmt.Sprintf("  [%d-%d of %d]", m.scrollOffset+1, m.scrollOffset+len(visibleNeighbors), len(neighbors))
-		b.WriteString(m.styles.StatusInfo.Render(scrollInfo))
-	}
-
-	return b.String()
-}
-
-// renderNeighborRow renders a single neighbor row
-func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []column) string {
-	// Determine style based on state:
-	// - Stale (no updates for 3-4 min) = gray
-	// - Active (getting updates) = green
-	// - New/flashing = bold green
-	var cellStyle lipgloss.Style
-
-	if n.IsStale {
-		cellStyle = m.styles.TableCellStale
-	} else if _, flashing := m.flashRows[n.NeighborKey()]; flashing || n.IsNew {
-		// Brand new or just updated - bold green
-		cellStyle = lipgloss.NewStyle().
-			Foreground(m.styles.TableRowNew.GetForeground()).
-			Bold(true)
-	} else {
-		// Active neighbor - regular green (not bold)
-		cellStyle = lipgloss.NewStyle().
-			Foreground(m.styles.TableRowNew.GetForeground())
-	}
-
-	var cells []string
-	for _, col := range columns {
-		value := col.getter(n)
-		cells = append(cells, cellStyle.Render(truncate(value, col.width)))
-	}
-
-	return strings.Join(cells, "  ")
-}
-
-// renderFooter renders the footer with hotkeys spread across width
-func (m NeighborTableModel) renderFooter() string {
-	theme := DefaultTheme
-	bg := theme.Base01
-
-	// Key styling - all with background
-	keyStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0C).
-		Background(bg).
-		Bold(true)
-	textStyle := lipgloss.NewStyle().
-		Foreground(theme.Base04).
-		Background(bg)
-	sepStyle := lipgloss.NewStyle().
-		Foreground(theme.Base02).
-		Background(bg)
-	onStyle := lipgloss.NewStyle().
-		Foreground(theme.Base0B).
-		Background(bg).
-		Bold(true)
-	offStyle := lipgloss.NewStyle().
-		Foreground(theme.Base03).
-		Background(bg)
-
-	// Build left side: commands with broadcast status
-	sep := sepStyle.Render(" │ ")
-
-	// Broadcast status indicator
-	var broadcastStatus string
-	if m.broadcasting {
-		broadcastStatus = onStyle.Render("TX")
-	} else {
-		broadcastStatus = offStyle.Render("--")
-	}
-
-	leftPart := keyStyle.Render("r") + textStyle.Render(" refresh") + sep +
-		keyStyle.Render("b") + textStyle.Render(" broadcast:") + broadcastStatus + sep +
-		keyStyle.Render("c") + textStyle.Render(" config") + sep +
-		keyStyle.Render("↑/↓") + textStyle.Render(" scroll") + sep +
-		keyStyle.Render("q") + textStyle.Render(" quit")
-
-	// Build right side: log file
-	var rightPart string
-	if m.logPath != "" {
-		fileStyle := lipgloss.NewStyle().
-			Foreground(theme.Base0A).
-			Background(bg)
-		rightPart = textStyle.Render("logging: ") + fileStyle.Render(m.logPath)
-	}
-
-	// Calculate spacing to spread across width
-	leftLen := lipgloss.Width(leftPart)
-	rightLen := lipgloss.Width(rightPart)
-
-	// Account for padding (1 on each side)
-	availableWidth := m.width - 2
-	totalContentWidth := leftLen + rightLen
-
-	// Calculate gap
-	gap := availableWidth - totalContentWidth
-	if gap < 1 {
-		gap = 1
-	}
-
-	// Build footer content with background-colored spaces
-	spaceStyle := lipgloss.NewStyle().Background(bg)
-	footerContent := leftPart + spaceStyle.Render(strings.Repeat(" ", gap)) + rightPart
-
-	// Apply background style
-	footerStyle := lipgloss.NewStyle().
-		Background(bg).
-		Padding(0, 1).
-		Width(m.width)
-
-	return footerStyle.Render(footerContent)
-}
-
-// truncate truncates a string to the given width and pads with spaces
-func truncate(s string, width int) string {
-	// Use lipgloss width to handle Unicode properly
-	visWidth := lipgloss.Width(s)
-	if visWidth <= width {
-		return s + strings.Repeat(" ", width-visWidth)
-	}
-	if width <= 3 {
-		// Truncate by runes, not bytes
-		runes := []rune(s)
-		if len(runes) > width {
-			return string(runes[:width])
-		}
-		return s
-	}
-	// Truncate to width-3 and add ellipsis
-	runes := []rune(s)
-	targetLen := width - 3
-	if targetLen < 0 {
-		targetLen = 0
-	}
-	// Find how many runes fit in targetLen visual width
-	result := ""
-	for _, r := range runes {
-		if lipgloss.Width(result+string(r)) > targetLen {
-			break
-		}
-		result += string(r)
-	}
-	return result + "..."
 }
 
 // MarkNewNeighbor marks a neighbor for flashing
@@ -598,21 +286,36 @@ func (m *NeighborTableModel) matchesCapabilityFilter(n *types.Neighbor) bool {
 	return false
 }
 
-// getFilteredNeighbors returns neighbors that match the capability filter
+// getFilteredNeighbors returns neighbors that match the capability filter, sorted by hostname
 func (m *NeighborTableModel) getFilteredNeighbors() []*types.Neighbor {
 	allNeighbors := m.store.GetAll()
 
-	// If no filter, return all
-	if len(m.config.FilterCapabilities) == 0 {
-		return allNeighbors
-	}
-
-	// Filter neighbors
 	var filtered []*types.Neighbor
-	for _, n := range allNeighbors {
-		if m.matchesCapabilityFilter(n) {
-			filtered = append(filtered, n)
+	// If no filter, use all
+	if len(m.config.FilterCapabilities) == 0 {
+		filtered = allNeighbors
+	} else {
+		// Filter neighbors
+		for _, n := range allNeighbors {
+			if m.matchesCapabilityFilter(n) {
+				filtered = append(filtered, n)
+			}
 		}
 	}
+
+	// Sort by hostname for consistent ordering
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Hostname < filtered[j].Hostname
+	})
+
 	return filtered
+}
+
+// getSelectedNeighbor returns the currently selected neighbor or nil
+func (m *NeighborTableModel) getSelectedNeighbor() *types.Neighbor {
+	neighbors := m.getFilteredNeighbors()
+	if m.selectedIndex < 0 || m.selectedIndex >= len(neighbors) {
+		return nil
+	}
+	return neighbors[m.selectedIndex]
 }

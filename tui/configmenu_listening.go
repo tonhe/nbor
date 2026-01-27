@@ -118,14 +118,7 @@ func (m ConfigMenuModel) updateListening(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // findListeningPosition returns the row and column position for the current cursor
 func (m *ConfigMenuModel) findListeningPosition(rows [][]int) (row, col int) {
-	for r, rowFields := range rows {
-		for c, field := range rowFields {
-			if field == m.subCursor {
-				return r, c
-			}
-		}
-	}
-	return 0, 0
+	return findRowPosition(m.subCursor, rows)
 }
 
 func (m *ConfigMenuModel) focusListeningInput() {
@@ -144,28 +137,7 @@ func (m ConfigMenuModel) renderListening() string {
 	var b strings.Builder
 
 	sectionStyle := lipgloss.NewStyle().Foreground(theme.Base0D).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(theme.Base05)
-	focusedStyle := lipgloss.NewStyle().Foreground(theme.Base0B).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(theme.Base03)
-	cursorStyle := lipgloss.NewStyle().Foreground(theme.Base0C).Bold(true)
-
-	checkbox := func(checked, focused bool) string {
-		style := labelStyle
-		if focused {
-			style = focusedStyle
-		}
-		if checked {
-			return style.Render("[x]")
-		}
-		return style.Render("[ ]")
-	}
-
-	cursor := func(focused bool) string {
-		if focused {
-			return cursorStyle.Render(">") + " "
-		}
-		return "  "
-	}
 
 	b.WriteString("\n")
 
@@ -176,25 +148,17 @@ func (m ConfigMenuModel) renderListening() string {
 
 	// CDP Listen / LLDP Listen (same row)
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 0))
-	b.WriteString(checkbox(m.cdpListen, m.subCursor == 0))
+	b.WriteString(renderCursor(m.subCursor == 0, theme))
+	b.WriteString(renderCheckbox(m.cdpListen, m.subCursor == 0, theme))
 	b.WriteString(" ")
-	if m.subCursor == 0 {
-		b.WriteString(focusedStyle.Render("CDP"))
-	} else {
-		b.WriteString(labelStyle.Render("CDP"))
-	}
+	b.WriteString(renderLabel("CDP", m.subCursor == 0, theme))
 	b.WriteString("     ")
 
 	// LLDP Listen
-	b.WriteString(cursor(m.subCursor == 1))
-	b.WriteString(checkbox(m.lldpListen, m.subCursor == 1))
+	b.WriteString(renderCursor(m.subCursor == 1, theme))
+	b.WriteString(renderCheckbox(m.lldpListen, m.subCursor == 1, theme))
 	b.WriteString(" ")
-	if m.subCursor == 1 {
-		b.WriteString(focusedStyle.Render("LLDP"))
-	} else {
-		b.WriteString(labelStyle.Render("LLDP"))
-	}
+	b.WriteString(renderLabel("LLDP", m.subCursor == 1, theme))
 	b.WriteString("\n\n")
 
 	// Filter by Capabilities
@@ -206,36 +170,24 @@ func (m ConfigMenuModel) renderListening() string {
 
 	// Filter Router / Bridge / Station (same row)
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 2))
-	b.WriteString(checkbox(m.filterRouter, m.subCursor == 2))
+	b.WriteString(renderCursor(m.subCursor == 2, theme))
+	b.WriteString(renderCheckbox(m.filterRouter, m.subCursor == 2, theme))
 	b.WriteString(" ")
-	if m.subCursor == 2 {
-		b.WriteString(focusedStyle.Render("Router"))
-	} else {
-		b.WriteString(labelStyle.Render("Router"))
-	}
+	b.WriteString(renderLabel("Router", m.subCursor == 2, theme))
 	b.WriteString("  ")
 
 	// Filter Bridge
-	b.WriteString(cursor(m.subCursor == 3))
-	b.WriteString(checkbox(m.filterBridge, m.subCursor == 3))
+	b.WriteString(renderCursor(m.subCursor == 3, theme))
+	b.WriteString(renderCheckbox(m.filterBridge, m.subCursor == 3, theme))
 	b.WriteString(" ")
-	if m.subCursor == 3 {
-		b.WriteString(focusedStyle.Render("Bridge"))
-	} else {
-		b.WriteString(labelStyle.Render("Bridge"))
-	}
+	b.WriteString(renderLabel("Bridge", m.subCursor == 3, theme))
 	b.WriteString("  ")
 
 	// Filter Station
-	b.WriteString(cursor(m.subCursor == 4))
-	b.WriteString(checkbox(m.filterStation, m.subCursor == 4))
+	b.WriteString(renderCursor(m.subCursor == 4, theme))
+	b.WriteString(renderCheckbox(m.filterStation, m.subCursor == 4, theme))
 	b.WriteString(" ")
-	if m.subCursor == 4 {
-		b.WriteString(focusedStyle.Render("Station"))
-	} else {
-		b.WriteString(labelStyle.Render("Station"))
-	}
+	b.WriteString(renderLabel("Station", m.subCursor == 4, theme))
 	b.WriteString("\n\n")
 
 	// Display Settings
@@ -245,12 +197,8 @@ func (m ConfigMenuModel) renderListening() string {
 
 	// Staleness Timeout
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 5))
-	if m.subCursor == 5 {
-		b.WriteString(focusedStyle.Render("Staleness Timeout"))
-	} else {
-		b.WriteString(labelStyle.Render("Staleness Timeout"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 5, theme))
+	b.WriteString(renderLabel("Staleness Timeout", m.subCursor == 5, theme))
 	b.WriteString("  ")
 	b.WriteString(m.stalenessInput.View())
 	b.WriteString(dimStyle.Render(" seconds (gray out)"))
@@ -258,12 +206,8 @@ func (m ConfigMenuModel) renderListening() string {
 
 	// Stale Removal
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 6))
-	if m.subCursor == 6 {
-		b.WriteString(focusedStyle.Render("Stale Removal"))
-	} else {
-		b.WriteString(labelStyle.Render("Stale Removal"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 6, theme))
+	b.WriteString(renderLabel("Stale Removal", m.subCursor == 6, theme))
 	b.WriteString("      ")
 	b.WriteString(m.staleRemovalInput.View())
 	b.WriteString(dimStyle.Render(" seconds (0 = never)"))
@@ -271,12 +215,8 @@ func (m ConfigMenuModel) renderListening() string {
 
 	// Back button
 	b.WriteString("  ")
-	b.WriteString(cursor(m.subCursor == 7))
-	if m.subCursor == 7 {
-		b.WriteString(focusedStyle.Render("[Back]"))
-	} else {
-		b.WriteString(labelStyle.Render("[Back]"))
-	}
+	b.WriteString(renderCursor(m.subCursor == 7, theme))
+	b.WriteString(renderLabel("[Back]", m.subCursor == 7, theme))
 	b.WriteString("\n")
 
 	return b.String()

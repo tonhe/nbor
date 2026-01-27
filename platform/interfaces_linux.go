@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/gopacket/pcap"
-
 	"nbor/types"
 )
 
@@ -86,44 +84,23 @@ func GetEthernetInterfaces() ([]types.InterfaceInfo, error) {
 	return result, nil
 }
 
-// isVirtualInterface checks if an interface name indicates a virtual interface
-func isVirtualInterface(name string) bool {
-	virtualPrefixes := []string{
-		"lo",
-		"veth",
-		"docker",
-		"br-",
-		"virbr",
-		"vnet",
-		"tun",
-		"tap",
-		"bond",
-		"dummy",
-	}
-
-	for _, prefix := range virtualPrefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-
-	return false
+// linuxExcludedPrefixes lists interface prefixes to exclude on Linux
+var linuxExcludedPrefixes = []string{
+	"lo",
+	"veth",
+	"docker",
+	"br-",
+	"virbr",
+	"vnet",
+	"tun",
+	"tap",
+	"bond",
+	"dummy",
 }
 
-// canOpenInterface checks if pcap can open the interface
-func canOpenInterface(name string) bool {
-	devices, err := pcap.FindAllDevs()
-	if err != nil {
-		return false
-	}
-
-	for _, dev := range devices {
-		if dev.Name == name {
-			return true
-		}
-	}
-
-	return false
+// isVirtualInterface checks if an interface name indicates a virtual interface
+func isVirtualInterface(name string) bool {
+	return hasExcludedPrefix(name, linuxExcludedPrefixes)
 }
 
 // getInterfaceSpeed reads the interface speed from sysfs
@@ -216,6 +193,20 @@ func GetAllInterfaces() ([]types.InterfaceInfo, error) {
 	return result, nil
 }
 
+// linuxPrefixReasons maps interface prefixes to filter reasons
+var linuxPrefixReasons = map[string]string{
+	"lo":     "loopback interface",
+	"veth":   "virtual Ethernet (container)",
+	"docker": "Docker bridge interface",
+	"br-":    "bridge interface",
+	"virbr":  "virtual bridge (libvirt)",
+	"vnet":   "virtual network interface",
+	"tun":    "tunnel interface",
+	"tap":    "TAP interface",
+	"bond":   "bonding interface",
+	"dummy":  "dummy interface",
+}
+
 // GetFilterReason returns why an interface was filtered, or empty string if not filtered
 func GetFilterReason(name string) string {
 	ifacePath := filepath.Join(sysClassNet, name)
@@ -227,23 +218,8 @@ func GetFilterReason(name string) string {
 	}
 
 	// Check virtual interface patterns
-	virtualReasons := map[string]string{
-		"lo":     "loopback interface",
-		"veth":   "virtual Ethernet (container)",
-		"docker": "Docker bridge interface",
-		"br-":    "bridge interface",
-		"virbr":  "virtual bridge (libvirt)",
-		"vnet":   "virtual network interface",
-		"tun":    "tunnel interface",
-		"tap":    "TAP interface",
-		"bond":   "bonding interface",
-		"dummy":  "dummy interface",
-	}
-
-	for prefix, reason := range virtualReasons {
-		if strings.HasPrefix(name, prefix) {
-			return reason
-		}
+	if reason := findPrefixReason(name, linuxPrefixReasons); reason != "" {
+		return reason
 	}
 
 	// Check if pcap can't open it

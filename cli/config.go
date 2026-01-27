@@ -63,4 +63,7 @@ func ApplyOverrides(cfg *config.Config, opts Options) {
 	if opts.NoAutoSelect != nil {
 		cfg.AutoSelectInterface = !*opts.NoAutoSelect
 	}
+
+	// Validate and fix any out-of-range values
+	cfg.ValidateAndFix()
 }
