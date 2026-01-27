@@ -37,10 +37,11 @@ type AppModel struct {
 	restartLogChan      chan<- struct{}
 	restartCaptureChan  chan<- struct{}
 	broadcastToggleChan chan<- bool
+	configUpdateChan    chan<- *config.Config
 }
 
 // NewApp creates a new application model (starts at interface picker)
-func NewApp(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool) AppModel {
+func NewApp(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool, configUpdateChan chan<- *config.Config) AppModel {
 	return AppModel{
 		state:               StateSelectInterface,
 		picker:              NewInterfacePicker(interfaces),
@@ -50,12 +51,13 @@ func NewApp(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *c
 		restartLogChan:      restartLogChan,
 		restartCaptureChan:  restartCaptureChan,
 		broadcastToggleChan: broadcastToggleChan,
+		configUpdateChan:    configUpdateChan,
 	}
 }
 
 // NewAppAtInterfacePicker creates a new application model starting at interface picker
 // Used when interface is specified via CLI
-func NewAppAtInterfacePicker(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool) AppModel {
+func NewAppAtInterfacePicker(interfaces []types.InterfaceInfo, store *types.NeighborStore, cfg *config.Config, selectChan chan<- types.InterfaceInfo, restartLogChan chan<- struct{}, restartCaptureChan chan<- struct{}, broadcastToggleChan chan<- bool, configUpdateChan chan<- *config.Config) AppModel {
 	return AppModel{
 		state:               StateSelectInterface,
 		picker:              NewInterfacePicker(interfaces),
@@ -65,6 +67,7 @@ func NewAppAtInterfacePicker(interfaces []types.InterfaceInfo, store *types.Neig
 		restartLogChan:      restartLogChan,
 		restartCaptureChan:  restartCaptureChan,
 		broadcastToggleChan: broadcastToggleChan,
+		configUpdateChan:    configUpdateChan,
 	}
 }
 
@@ -146,8 +149,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.config = msg.Config
 		// Update the neighbors model with new config
 		m.neighbors.config = m.config
-		m.neighbors.broadcasting = m.config.CDPBroadcast || m.config.LLDPBroadcast
+		newBroadcasting := m.config.CDPBroadcast || m.config.LLDPBroadcast
+		m.neighbors.broadcasting = newBroadcasting
 		m.state = StateCapturing
+
+		// Signal config update to main goroutine (for broadcaster, etc.)
+		if m.configUpdateChan != nil {
+			select {
+			case m.configUpdateChan <- m.config:
+			default:
+			}
+		}
+
+		// Signal broadcaster to start/stop based on new config
+		// This ensures the broadcaster actually runs when broadcast is enabled via config
+		if m.broadcastToggleChan != nil {
+			select {
+			case m.broadcastToggleChan <- newBroadcasting:
+			default:
+			}
+		}
 
 		// If listen settings changed, signal that a new log file is needed
 		if msg.ListenSettingsChanged && m.restartLogChan != nil {

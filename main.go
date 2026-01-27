@@ -42,6 +42,7 @@ var selectedInterfaceChan = make(chan types.InterfaceInfo, 1)
 var restartLogChan = make(chan struct{}, 1)
 var restartCaptureChan = make(chan struct{}, 1)
 var broadcastToggleChan = make(chan bool, 1)
+var configUpdateChan = make(chan *config.Config, 1)
 
 // cliOptions holds parsed command-line arguments
 type cliOptions struct {
@@ -663,9 +664,9 @@ func main() {
 	// If interface is preselected, start at interface picker, otherwise show main menu
 	var app tui.AppModel
 	if preselectedInterface != nil {
-		app = tui.NewAppAtInterfacePicker(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan)
+		app = tui.NewAppAtInterfacePicker(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan, configUpdateChan)
 	} else {
-		app = tui.NewApp(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan)
+		app = tui.NewApp(interfaces, store, &cfg, selectedInterfaceChan, restartLogChan, restartCaptureChan, broadcastToggleChan, configUpdateChan)
 	}
 
 	// Create program with options
@@ -797,6 +798,18 @@ func main() {
 				} else {
 					broadcaster.Stop()
 				}
+			}
+		}
+	}()
+
+	// Goroutine to handle config updates from TUI
+	go func() {
+		for newCfg := range configUpdateChan {
+			// Update local config reference
+			cfg = *newCfg
+			// Update broadcaster config
+			if broadcaster != nil {
+				broadcaster.UpdateConfig(newCfg)
 			}
 		}
 	}()
