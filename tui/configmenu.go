@@ -748,10 +748,9 @@ func (m ConfigMenuModel) updateTheme(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.previewTheme()
 
 	case key.Matches(msg, configMenuKeys.Select):
-		// Confirm theme selection
+		// Confirm theme selection - just update the index, don't modify config yet
+		// Config will be updated when Save & Exit or Ctrl+S is pressed
 		m.themeIndex = m.subCursor
-		slug, _, _ := GetThemeByIndex(m.themeIndex)
-		m.config.Theme = slug
 		m.themePreviewDirty = true
 		m.subState = SubStateMain
 	}
@@ -840,6 +839,12 @@ func (m ConfigMenuModel) saveConfig() (tea.Model, tea.Cmd) {
 	m.config.StaleRemovalTime = staleRemoval
 	m.config.LoggingEnabled = m.loggingEnabled
 	m.config.LogDirectory = m.logDirInput.Value()
+
+	// Update theme from the selected index
+	themeSlug, _, _ := GetThemeByIndex(m.themeIndex)
+	if themeSlug != "" {
+		m.config.Theme = themeSlug
+	}
 
 	// Check if listen settings changed
 	listenChanged := m.cdpListen != m.originalCDPListen || m.lldpListen != m.originalLLDPListen
@@ -985,7 +990,7 @@ func (m ConfigMenuModel) renderListening() string {
 	b.WriteString(sectionStyle.Render("Protocol Listening"))
 	b.WriteString("\n\n")
 
-	// CDP Listen
+	// CDP Listen / LLDP Listen (same row)
 	b.WriteString("  ")
 	b.WriteString(cursor(m.subCursor == 0))
 	b.WriteString(checkbox(m.cdpListen, m.subCursor == 0))
@@ -995,9 +1000,10 @@ func (m ConfigMenuModel) renderListening() string {
 	} else {
 		b.WriteString(labelStyle.Render("CDP"))
 	}
-	b.WriteString("        ")
+	b.WriteString("     ")
 
 	// LLDP Listen
+	b.WriteString(cursor(m.subCursor == 1))
 	b.WriteString(checkbox(m.lldpListen, m.subCursor == 1))
 	b.WriteString(" ")
 	if m.subCursor == 1 {
@@ -1014,7 +1020,7 @@ func (m ConfigMenuModel) renderListening() string {
 	b.WriteString(dimStyle.Render("(empty = show all)"))
 	b.WriteString("\n\n")
 
-	// Filter Router
+	// Filter Router / Bridge / Station (same row)
 	b.WriteString("  ")
 	b.WriteString(cursor(m.subCursor == 2))
 	b.WriteString(checkbox(m.filterRouter, m.subCursor == 2))
@@ -1024,9 +1030,10 @@ func (m ConfigMenuModel) renderListening() string {
 	} else {
 		b.WriteString(labelStyle.Render("Router"))
 	}
-	b.WriteString("     ")
+	b.WriteString("  ")
 
 	// Filter Bridge
+	b.WriteString(cursor(m.subCursor == 3))
 	b.WriteString(checkbox(m.filterBridge, m.subCursor == 3))
 	b.WriteString(" ")
 	if m.subCursor == 3 {
@@ -1034,9 +1041,10 @@ func (m ConfigMenuModel) renderListening() string {
 	} else {
 		b.WriteString(labelStyle.Render("Bridge"))
 	}
-	b.WriteString("     ")
+	b.WriteString("  ")
 
 	// Filter Station
+	b.WriteString(cursor(m.subCursor == 4))
 	b.WriteString(checkbox(m.filterStation, m.subCursor == 4))
 	b.WriteString(" ")
 	if m.subCursor == 4 {
@@ -1155,7 +1163,7 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	b.WriteString(sectionStyle.Render("Protocol Broadcasting"))
 	b.WriteString("\n\n")
 
-	// CDP Broadcast
+	// CDP Broadcast / LLDP Broadcast (same row)
 	b.WriteString("  ")
 	b.WriteString(cursor(m.subCursor == 2))
 	b.WriteString(checkbox(m.cdpBroadcast, m.subCursor == 2))
@@ -1165,9 +1173,10 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	} else {
 		b.WriteString(labelStyle.Render("CDP"))
 	}
-	b.WriteString("        ")
+	b.WriteString("     ")
 
 	// LLDP Broadcast
+	b.WriteString(cursor(m.subCursor == 3))
 	b.WriteString(checkbox(m.lldpBroadcast, m.subCursor == 3))
 	b.WriteString(" ")
 	if m.subCursor == 3 {
@@ -1225,7 +1234,7 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	b.WriteString(sectionStyle.Render("Capabilities (advertised)"))
 	b.WriteString("\n\n")
 
-	// Router
+	// Router / Bridge / Station (same row)
 	b.WriteString("  ")
 	b.WriteString(cursor(m.subCursor == 7))
 	b.WriteString(checkbox(m.capRouter, m.subCursor == 7))
@@ -1235,9 +1244,10 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	} else {
 		b.WriteString(labelStyle.Render("Router"))
 	}
-	b.WriteString("     ")
+	b.WriteString("  ")
 
 	// Bridge
+	b.WriteString(cursor(m.subCursor == 8))
 	b.WriteString(checkbox(m.capBridge, m.subCursor == 8))
 	b.WriteString(" ")
 	if m.subCursor == 8 {
@@ -1245,9 +1255,10 @@ func (m ConfigMenuModel) renderBroadcast() string {
 	} else {
 		b.WriteString(labelStyle.Render("Bridge"))
 	}
-	b.WriteString("     ")
+	b.WriteString("  ")
 
 	// Station
+	b.WriteString(cursor(m.subCursor == 9))
 	b.WriteString(checkbox(m.capStation, m.subCursor == 9))
 	b.WriteString(" ")
 	if m.subCursor == 9 {
