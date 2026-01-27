@@ -10,8 +10,8 @@ import (
 	"nbor/types"
 )
 
-// renderDetailPopupOverlay renders a centered popup overlaid on the base view
-func (m NeighborTableModel) renderDetailPopupOverlay(n *types.Neighbor, baseView string) string {
+// renderDetailPopupOverlay renders a centered popup (baseView parameter kept for API compatibility)
+func (m NeighborTableModel) renderDetailPopupOverlay(n *types.Neighbor, _ string) string {
 	theme := DefaultTheme
 	bg := theme.Base00
 
@@ -158,57 +158,16 @@ func (m NeighborTableModel) renderDetailPopupOverlay(n *types.Neighbor, baseView
 
 	popup := borderStyle.Render(b.String())
 
-	// Overlay popup on top of the base view
-	return overlayPopup(baseView, popup, m.width, m.height)
-}
-
-// overlayPopup places a popup in the center of the base view
-func overlayPopup(base, popup string, width, height int) string {
-	baseLines := strings.Split(base, "\n")
-	popupLines := strings.Split(popup, "\n")
-
-	popupHeight := len(popupLines)
-	popupWidth := lipgloss.Width(popupLines[0])
-
-	// Calculate position to center the popup
-	startRow := (height - popupHeight) / 2
-	startCol := (width - popupWidth) / 2
-
-	if startRow < 0 {
-		startRow = 0
-	}
-	if startCol < 0 {
-		startCol = 0
-	}
-
-	// Ensure we have enough lines
-	for len(baseLines) < height {
-		baseLines = append(baseLines, "")
-	}
-
-	// Overlay the popup onto the base
-	for i, popupLine := range popupLines {
-		row := startRow + i
-		if row >= len(baseLines) {
-			break
-		}
-
-		baseLine := baseLines[row]
-		// Pad base line if needed
-		baseRunes := []rune(baseLine)
-		for len(baseRunes) < startCol+popupWidth {
-			baseRunes = append(baseRunes, ' ')
-		}
-
-		// Insert popup line
-		newLine := string(baseRunes[:startCol]) + popupLine
-		if startCol+popupWidth < len(baseRunes) {
-			newLine += string(baseRunes[startCol+popupWidth:])
-		}
-		baseLines[row] = newLine
-	}
-
-	return strings.Join(baseLines[:height], "\n")
+	// Center the popup on screen using lipgloss.Place
+	// Use the theme background for the surrounding area
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		popup,
+		lipgloss.WithWhitespaceBackground(bg),
+	)
 }
 
 // formatPortInfo formats port ID and description
