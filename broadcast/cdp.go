@@ -5,31 +5,9 @@ import (
 	"net"
 
 	"nbor/config"
+	"nbor/protocol"
 	"nbor/types"
 )
-
-// CDP TLV types
-const (
-	cdpTLVDeviceID     uint16 = 0x0001
-	cdpTLVAddress      uint16 = 0x0002
-	cdpTLVPortID       uint16 = 0x0003
-	cdpTLVCapabilities uint16 = 0x0004
-	cdpTLVVersion      uint16 = 0x0005
-	cdpTLVPlatform     uint16 = 0x0006
-)
-
-// CDP capability bits
-const (
-	cdpCapRouter  uint32 = 0x01
-	cdpCapBridge  uint32 = 0x02
-	cdpCapSwitch  uint32 = 0x08
-	cdpCapHost    uint32 = 0x10
-	cdpCapPhone   uint32 = 0x80
-	cdpCapStation uint32 = 0x10 // Same as host
-)
-
-// CDP multicast MAC address
-var cdpMulticastMAC = net.HardwareAddr{0x01, 0x00, 0x0c, 0xcc, 0xcc, 0xcc}
 
 // BuildCDPFrame builds a complete CDP frame ready for transmission
 func BuildCDPFrame(cfg *config.Config, iface *types.InterfaceInfo, systemName string) ([]byte, error) {
@@ -49,7 +27,7 @@ func BuildCDPFrame(cfg *config.Config, iface *types.InterfaceInfo, systemName st
 	offset := 0
 
 	// Ethernet header
-	copy(frame[offset:offset+6], cdpMulticastMAC) // Destination MAC
+	copy(frame[offset:offset+6], protocol.CDPMulticastMAC) // Destination MAC
 	offset += 6
 	copy(frame[offset:offset+6], iface.MAC) // Source MAC
 	offset += 6
@@ -89,32 +67,32 @@ func buildCDPPayload(cfg *config.Config, iface *types.InterfaceInfo, systemName 
 	payload = append(payload, header...)
 
 	// TLV: Device ID
-	payload = append(payload, encodeCDPTLV(cdpTLVDeviceID, []byte(systemName))...)
+	payload = append(payload, encodeCDPTLV(protocol.CDPTLVDeviceID, []byte(systemName))...)
 
 	// TLV: Port ID
-	payload = append(payload, encodeCDPTLV(cdpTLVPortID, []byte(iface.Name))...)
+	payload = append(payload, encodeCDPTLV(protocol.CDPTLVPortID, []byte(iface.Name))...)
 
 	// TLV: Capabilities
-	capBits := buildCDPCapabilities(cfg.Capabilities)
+	capBits := protocol.BuildCDPCapabilities(cfg.Capabilities)
 	capData := make([]byte, 4)
 	binary.BigEndian.PutUint32(capData, capBits)
-	payload = append(payload, encodeCDPTLV(cdpTLVCapabilities, capData)...)
+	payload = append(payload, encodeCDPTLV(protocol.CDPTLVCapabilities, capData)...)
 
 	// TLV: Platform
 	platform := "nbor"
-	payload = append(payload, encodeCDPTLV(cdpTLVPlatform, []byte(platform))...)
+	payload = append(payload, encodeCDPTLV(protocol.CDPTLVPlatform, []byte(platform))...)
 
 	// TLV: Software Version (Description)
 	description := cfg.SystemDescription
 	if description == "" {
 		description = "nbor network neighbor discovery tool"
 	}
-	payload = append(payload, encodeCDPTLV(cdpTLVVersion, []byte(description))...)
+	payload = append(payload, encodeCDPTLV(protocol.CDPTLVVersion, []byte(description))...)
 
 	// TLV: Addresses (if interface has IP)
 	if len(iface.IPv4Addrs) > 0 {
 		addrData := encodeCDPAddresses(iface.IPv4Addrs)
-		payload = append(payload, encodeCDPTLV(cdpTLVAddress, addrData)...)
+		payload = append(payload, encodeCDPTLV(protocol.CDPTLVAddress, addrData)...)
 	}
 
 	return payload
@@ -129,30 +107,6 @@ func encodeCDPTLV(tlvType uint16, value []byte) []byte {
 	binary.BigEndian.PutUint16(tlv[2:4], length)
 	copy(tlv[4:], value)
 	return tlv
-}
-
-// buildCDPCapabilities converts capability strings to CDP capability bits
-func buildCDPCapabilities(caps []string) uint32 {
-	var bits uint32
-	for _, cap := range caps {
-		switch cap {
-		case "router":
-			bits |= cdpCapRouter
-		case "bridge":
-			bits |= cdpCapBridge
-		case "switch":
-			bits |= cdpCapSwitch
-		case "station", "host":
-			bits |= cdpCapStation
-		case "phone":
-			bits |= cdpCapPhone
-		}
-	}
-	// Default to station if nothing set
-	if bits == 0 {
-		bits = cdpCapStation
-	}
-	return bits
 }
 
 // encodeCDPAddresses encodes IP addresses for the Address TLV

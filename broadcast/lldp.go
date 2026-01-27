@@ -5,49 +5,9 @@ import (
 	"net"
 
 	"nbor/config"
+	"nbor/protocol"
 	"nbor/types"
 )
-
-// LLDP TLV types
-const (
-	lldpTLVEnd            uint8 = 0
-	lldpTLVChassisID      uint8 = 1
-	lldpTLVPortID         uint8 = 2
-	lldpTLVTTL            uint8 = 3
-	lldpTLVPortDesc       uint8 = 4
-	lldpTLVSystemName     uint8 = 5
-	lldpTLVSystemDesc     uint8 = 6
-	lldpTLVSystemCap      uint8 = 7
-	lldpTLVMgmtAddress    uint8 = 8
-)
-
-// LLDP Chassis ID subtypes
-const (
-	lldpChassisIDSubtypeMAC uint8 = 4
-)
-
-// LLDP Port ID subtypes
-const (
-	lldpPortIDSubtypeIfaceName uint8 = 5
-)
-
-// LLDP capability bits
-const (
-	lldpCapOther     uint16 = 0x0001
-	lldpCapRepeater  uint16 = 0x0002
-	lldpCapBridge    uint16 = 0x0004
-	lldpCapWLANAP    uint16 = 0x0008
-	lldpCapRouter    uint16 = 0x0010
-	lldpCapPhone     uint16 = 0x0020
-	lldpCapDocsis    uint16 = 0x0040
-	lldpCapStation   uint16 = 0x0080
-)
-
-// LLDP multicast MAC address
-var lldpMulticastMAC = net.HardwareAddr{0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e}
-
-// LLDP EtherType
-const lldpEtherType uint16 = 0x88CC
 
 // BuildLLDPFrame builds a complete LLDP frame ready for transmission
 func BuildLLDPFrame(cfg *config.Config, iface *types.InterfaceInfo, systemName string) ([]byte, error) {
@@ -62,11 +22,11 @@ func BuildLLDPFrame(cfg *config.Config, iface *types.InterfaceInfo, systemName s
 	offset := 0
 
 	// Ethernet header
-	copy(frame[offset:offset+6], lldpMulticastMAC) // Destination MAC
+	copy(frame[offset:offset+6], protocol.LLDPMulticastMAC) // Destination MAC
 	offset += 6
 	copy(frame[offset:offset+6], iface.MAC) // Source MAC
 	offset += 6
-	binary.BigEndian.PutUint16(frame[offset:offset+2], lldpEtherType) // EtherType
+	binary.BigEndian.PutUint16(frame[offset:offset+2], protocol.LLDPEtherType) // EtherType
 	offset += 2
 
 	// LLDP payload
@@ -81,45 +41,45 @@ func buildLLDPPayload(cfg *config.Config, iface *types.InterfaceInfo, systemName
 
 	// Mandatory TLV: Chassis ID (using MAC address)
 	chassisIDData := make([]byte, 1+6)
-	chassisIDData[0] = lldpChassisIDSubtypeMAC
+	chassisIDData[0] = protocol.LLDPChassisIDSubtypeMAC
 	copy(chassisIDData[1:], iface.MAC)
-	payload = append(payload, encodeLLDPTLV(lldpTLVChassisID, chassisIDData)...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVChassisID, chassisIDData)...)
 
 	// Mandatory TLV: Port ID (using interface name)
 	portIDData := make([]byte, 1+len(iface.Name))
-	portIDData[0] = lldpPortIDSubtypeIfaceName
+	portIDData[0] = protocol.LLDPPortIDSubtypeIfaceName
 	copy(portIDData[1:], iface.Name)
-	payload = append(payload, encodeLLDPTLV(lldpTLVPortID, portIDData)...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVPortID, portIDData)...)
 
 	// Mandatory TLV: TTL
 	ttlData := make([]byte, 2)
 	binary.BigEndian.PutUint16(ttlData, uint16(cfg.TTL))
-	payload = append(payload, encodeLLDPTLV(lldpTLVTTL, ttlData)...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVTTL, ttlData)...)
 
 	// Optional TLV: Port Description
-	payload = append(payload, encodeLLDPTLV(lldpTLVPortDesc, []byte(iface.Name))...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVPortDesc, []byte(iface.Name))...)
 
 	// Optional TLV: System Name
-	payload = append(payload, encodeLLDPTLV(lldpTLVSystemName, []byte(systemName))...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVSystemName, []byte(systemName))...)
 
 	// Optional TLV: System Description
 	description := cfg.SystemDescription
 	if description == "" {
 		description = "nbor network neighbor discovery tool"
 	}
-	payload = append(payload, encodeLLDPTLV(lldpTLVSystemDesc, []byte(description))...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVSystemDesc, []byte(description))...)
 
 	// Optional TLV: System Capabilities
-	capBits := buildLLDPCapabilities(cfg.Capabilities)
+	capBits := protocol.BuildLLDPCapabilities(cfg.Capabilities)
 	capData := make([]byte, 4)
 	binary.BigEndian.PutUint16(capData[0:2], capBits) // System capabilities
 	binary.BigEndian.PutUint16(capData[2:4], capBits) // Enabled capabilities
-	payload = append(payload, encodeLLDPTLV(lldpTLVSystemCap, capData)...)
+	payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVSystemCap, capData)...)
 
 	// Optional TLV: Management Address (if interface has IP)
 	if len(iface.IPv4Addrs) > 0 {
 		mgmtData := encodeLLDPMgmtAddress(iface.IPv4Addrs[0], iface.Name)
-		payload = append(payload, encodeLLDPTLV(lldpTLVMgmtAddress, mgmtData)...)
+		payload = append(payload, encodeLLDPTLV(protocol.LLDPTLVMgmtAddress, mgmtData)...)
 	}
 
 	// End TLV (type 0, length 0)
@@ -143,34 +103,6 @@ func encodeLLDPTLV(tlvType uint8, value []byte) []byte {
 	binary.BigEndian.PutUint16(tlv[0:2], header)
 	copy(tlv[2:], value[:length])
 	return tlv
-}
-
-// buildLLDPCapabilities converts capability strings to LLDP capability bits
-func buildLLDPCapabilities(caps []string) uint16 {
-	var bits uint16
-	for _, cap := range caps {
-		switch cap {
-		case "router":
-			bits |= lldpCapRouter
-		case "bridge":
-			bits |= lldpCapBridge
-		case "switch":
-			bits |= lldpCapBridge // LLDP uses bridge for switches
-		case "station", "host":
-			bits |= lldpCapStation
-		case "phone":
-			bits |= lldpCapPhone
-		case "ap", "wlan":
-			bits |= lldpCapWLANAP
-		case "repeater":
-			bits |= lldpCapRepeater
-		}
-	}
-	// Default to station if nothing set
-	if bits == 0 {
-		bits = lldpCapStation
-	}
-	return bits
 }
 
 // encodeLLDPMgmtAddress encodes the management address TLV data

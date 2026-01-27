@@ -9,36 +9,8 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
+	"nbor/protocol"
 	"nbor/types"
-)
-
-// CDP TLV types
-const (
-	CDPTLVDeviceID     uint16 = 0x0001
-	CDPTLVAddress      uint16 = 0x0002
-	CDPTLVPortID       uint16 = 0x0003
-	CDPTLVCapabilities uint16 = 0x0004
-	CDPTLVVersion      uint16 = 0x0005
-	CDPTLVPlatform     uint16 = 0x0006
-	CDPTLVIPPrefix     uint16 = 0x0007
-	CDPTLVHello        uint16 = 0x0008
-	CDPTLVVTPDomain    uint16 = 0x0009
-	CDPTLVNativeVLAN   uint16 = 0x000a
-	CDPTLVDuplex       uint16 = 0x000b
-	CDPTLVLocation     uint16 = 0x000c
-	CDPTLVMgmtAddress  uint16 = 0x0016
-)
-
-// CDP capability bits
-const (
-	CDPCapRouter       uint32 = 0x01
-	CDPCapTransBridge  uint32 = 0x02
-	CDPCapSourceBridge uint32 = 0x04
-	CDPCapSwitch       uint32 = 0x08
-	CDPCapHost         uint32 = 0x10
-	CDPCapIGMP         uint32 = 0x20
-	CDPCapRepeater     uint32 = 0x40
-	CDPCapPhone        uint32 = 0x80
 )
 
 // ParseCDP parses a CDP packet and returns a Neighbor struct
@@ -107,33 +79,7 @@ func ParseCDP(packet gopacket.Packet, ifaceName string) (*types.Neighbor, error)
 
 // parseCDPCapabilities parses the CDP capabilities field
 func parseCDPCapabilities(data []byte) []types.Capability {
-	if len(data) < 4 {
-		return nil
-	}
-
-	caps := binary.BigEndian.Uint32(data)
-	var result []types.Capability
-
-	if caps&CDPCapRouter != 0 {
-		result = append(result, types.CapRouter)
-	}
-	if caps&CDPCapTransBridge != 0 || caps&CDPCapSourceBridge != 0 {
-		result = append(result, types.CapBridge)
-	}
-	if caps&CDPCapSwitch != 0 {
-		result = append(result, types.CapSwitch)
-	}
-	if caps&CDPCapRepeater != 0 {
-		result = append(result, types.CapRepeater)
-	}
-	if caps&CDPCapPhone != 0 {
-		result = append(result, types.CapPhone)
-	}
-	if caps&CDPCapHost != 0 {
-		result = append(result, types.CapStation)
-	}
-
-	return result
+	return protocol.ParseCDPCapabilities(data)
 }
 
 // parseCDPAddresses parses the CDP address TLV

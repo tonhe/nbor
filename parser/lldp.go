@@ -10,6 +10,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
+	"nbor/protocol"
 	"nbor/types"
 )
 
@@ -101,10 +102,10 @@ func parseLLDPChassisID(chassisID layers.LLDPChassisID) string {
 		layers.LLDPChassisIDSubTypeChassisComp,
 		layers.LLDPChassisIDSubtypeIfaceName,
 		layers.LLDPChassisIDSubtypeIfaceAlias:
-		return cleanString(string(chassisID.ID))
+		return protocol.CleanString(string(chassisID.ID))
 
 	default:
-		return cleanString(string(chassisID.ID))
+		return protocol.CleanString(string(chassisID.ID))
 	}
 }
 
@@ -132,10 +133,10 @@ func parseLLDPPortID(portID layers.LLDPPortID) string {
 		layers.LLDPPortIDSubtypeIfaceName,
 		layers.LLDPPortIDSubtypeIfaceAlias,
 		layers.LLDPPortIDSubtypeAgentCircuitID:
-		return cleanString(string(portID.ID))
+		return protocol.CleanString(string(portID.ID))
 
 	default:
-		return cleanString(string(portID.ID))
+		return protocol.CleanString(string(portID.ID))
 	}
 }
 
@@ -247,7 +248,7 @@ func parseCivicAddress(data []byte) string {
 			break
 		}
 
-		value := cleanString(string(data[offset : offset+caLen]))
+		value := protocol.CleanString(string(data[offset : offset+caLen]))
 		if value != "" {
 			parts = append(parts, value)
 		}
@@ -255,15 +256,6 @@ func parseCivicAddress(data []byte) string {
 	}
 
 	return strings.Join(parts, ", ")
-}
-
-// cleanString removes null bytes and trims whitespace
-func cleanString(s string) string {
-	// Remove null bytes
-	s = strings.ReplaceAll(s, "\x00", "")
-	// Trim whitespace
-	s = strings.TrimSpace(s)
-	return s
 }
 
 // Helper to convert big endian bytes to uint16
