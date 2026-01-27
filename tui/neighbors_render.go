@@ -21,15 +21,17 @@ type column struct {
 
 // View renders the neighbor table
 func (m NeighborTableModel) View() string {
-	// If detail popup is active, render it as overlay
+	// Render normal table view first
+	baseView := m.renderBaseView()
+
+	// If detail popup is active, overlay it on top of the base view
 	if m.showDetail {
 		if n := m.getSelectedNeighbor(); n != nil {
-			return m.renderDetailPopup(n)
+			return m.renderDetailPopupOverlay(n, baseView)
 		}
 	}
 
-	// Render normal table view
-	return m.renderBaseView()
+	return baseView
 }
 
 // renderBaseView renders the main table view (header + table + footer)
@@ -192,13 +194,13 @@ func (m NeighborTableModel) renderTable() string {
 	// Blank line after header
 	b.WriteString("\n")
 
-	// Table header
+	// Table header (with prefix space for alignment with row cursor)
 	var headerCells []string
 	for _, col := range columns {
 		headerCells = append(headerCells, truncate(col.name, col.width))
 	}
 
-	headerRow := strings.Join(headerCells, "  ")
+	headerRow := "  " + strings.Join(headerCells, "  ")
 	b.WriteString(m.styles.TableHeader.Render(headerRow))
 	b.WriteString("\n")
 
@@ -242,19 +244,12 @@ func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []colum
 	theme := DefaultTheme
 
 	// Determine style based on state:
-	// - Selected = inverse/highlight
 	// - Stale (no updates for 3-4 min) = gray
 	// - Active (getting updates) = green
 	// - New/flashing = bold green
 	var cellStyle lipgloss.Style
 
-	if isSelected {
-		// Selected row: use inverse colors (background highlight)
-		cellStyle = lipgloss.NewStyle().
-			Foreground(theme.Base00).
-			Background(theme.Base0D).
-			Bold(true)
-	} else if n.IsStale {
+	if n.IsStale {
 		cellStyle = m.styles.TableCellStale
 	} else if _, flashing := m.flashRows[n.NeighborKey()]; flashing || n.IsNew {
 		// Brand new or just updated - bold green
@@ -267,6 +262,17 @@ func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []colum
 			Foreground(m.styles.TableRowNew.GetForeground())
 	}
 
+	// Subtle cursor indicator for selection
+	var prefix string
+	if isSelected {
+		cursorStyle := lipgloss.NewStyle().
+			Foreground(theme.Base0D).
+			Bold(true)
+		prefix = cursorStyle.Render("▸ ")
+	} else {
+		prefix = "  "
+	}
+
 	var cells []string
 	for _, col := range columns {
 		value := col.getter(n)
@@ -275,17 +281,7 @@ func (m NeighborTableModel) renderNeighborRow(n *types.Neighbor, columns []colum
 
 	row := strings.Join(cells, "  ")
 
-	// For selected row, extend background to full width
-	if isSelected {
-		// Pad the row to fill available width
-		rowWidth := lipgloss.Width(row)
-		if rowWidth < m.width-2 {
-			padding := strings.Repeat(" ", m.width-2-rowWidth)
-			row += cellStyle.Render(padding)
-		}
-	}
-
-	return row
+	return prefix + row
 }
 
 // renderFooter renders the footer with hotkeys spread across width
