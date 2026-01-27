@@ -77,8 +77,6 @@ func (m NeighborTableModel) renderDetailPopup(n *types.Neighbor, contentHeight i
 	b.WriteString("\n")
 	b.WriteString(separatorStyle.Render(strings.Repeat("─", contentWidth)))
 	b.WriteString("\n")
-	b.WriteString(blankLineStyle.Render(""))
-	b.WriteString("\n")
 
 	// Helper to render a row with full-width background
 	renderRow := func(label, value string) {
@@ -102,17 +100,10 @@ func (m NeighborTableModel) renderDetailPopup(n *types.Neighbor, contentHeight i
 		b.WriteString("\n")
 	}
 
-	// Helper for blank line with background
-	blankLine := func() {
-		b.WriteString(blankLineStyle.Render(""))
-		b.WriteString("\n")
-	}
-
 	// Device Identity
 	renderRow("Device ID:", n.ID)
 	renderRow("Port:", formatPortInfo(n))
 	renderRow("Protocol:", string(n.Protocol))
-	blankLine()
 
 	// Network Info
 	mgmtIP := ""
@@ -126,26 +117,24 @@ func (m NeighborTableModel) renderDetailPopup(n *types.Neighbor, contentHeight i
 		srcMAC = n.SourceMAC.String()
 	}
 	renderRow("Source MAC:", srcMAC)
-	blankLine()
 
 	// Platform Info
 	renderRow("Platform:", truncateValue(n.Platform, contentWidth-15))
 	renderRow("Description:", truncateValue(n.Description, contentWidth-15))
 	renderRow("Location:", truncateValue(n.Location, contentWidth-15))
-	blankLine()
 
 	// Capabilities
 	caps := formatCapabilitiesList(n.Capabilities)
 	renderRow("Capabilities:", caps)
-	blankLine()
 
 	// Timing Info
 	renderRow("First Seen:", formatTime(n.FirstSeen))
 	renderRow("Last Seen:", formatLastSeen(n.LastSeen))
 	renderRow("Interface:", n.Interface)
 
-	blankLine()
-	b.WriteString(hintStyle.Render("Press ESC or Enter to close"))
+	b.WriteString(blankLineStyle.Render(""))
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("ESC to close"))
 
 	// Apply border style
 	borderStyle := lipgloss.NewStyle().

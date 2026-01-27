@@ -32,21 +32,91 @@ func (m NeighborTableModel) View() string {
 	return m.renderBaseView()
 }
 
+// Minimum height required to display the detail popup (popup ~17 lines + header + footer)
+const minDetailPopupHeight = 20
+
 // renderDetailView renders the detail popup with header and footer visible
 func (m NeighborTableModel) renderDetailView(n *types.Neighbor) string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	// Calculate content area height (between header and footer)
-	contentHeight := m.height - 2 // 1 for header, 1 for footer
+	// If terminal is too small, show a message instead of the popup
+	if m.height < minDetailPopupHeight {
+		contentHeight := m.height - 2
+		return m.renderTooSmallMessage(header, footer, contentHeight)
+	}
 
 	// Render popup centered in content area
+	contentHeight := m.height - 2
 	popup := m.renderDetailPopup(n, contentHeight)
+
+	// Remove any trailing newline from popup to ensure consistent formatting
+	popup = strings.TrimSuffix(popup, "\n")
+
+	// Count actual popup lines
+	popupLines := strings.Count(popup, "\n") + 1
+
+	// Truncate if popup is larger than contentHeight
+	if popupLines > contentHeight {
+		lines := strings.Split(popup, "\n")
+		lines = lines[:contentHeight]
+		popup = strings.Join(lines, "\n")
+		popupLines = contentHeight
+	}
+
+	// Calculate padding needed to push footer to bottom
+	// Total lines needed: header (1) + popup + padding + footer (1) = m.height
+	headerLines := strings.Count(header, "\n") + 1
+	footerLines := 1
+	usedLines := headerLines + popupLines + footerLines
+	paddingLines := m.height - usedLines
+	if paddingLines < 0 {
+		paddingLines = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	// DEBUG: Add visible marker at top to see what's happening
+	b.WriteString(fmt.Sprintf(" [h=%d,ph=%d,pad=%d]", m.height, popupLines, paddingLines))
+	b.WriteString("\n")
+	b.WriteString(popup)
+	if paddingLines > 0 {
+		b.WriteString(strings.Repeat("\n", paddingLines))
+	}
+	b.WriteString("\n")
+	b.WriteString(footer)
+
+	return b.String()
+}
+
+// renderTooSmallMessage renders a message when terminal is too small for the popup
+func (m NeighborTableModel) renderTooSmallMessage(header, footer string, contentHeight int) string {
+	theme := DefaultTheme
+	bg := theme.Base00
+
+	msg := lipgloss.NewStyle().
+		Foreground(theme.Base03).
+		Background(bg).
+		Width(m.width).
+		Align(lipgloss.Center).
+		Render("Terminal too small for details. Press ESC to close.")
+
+	// Center the message vertically
+	content := lipgloss.Place(
+		m.width,
+		contentHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		msg,
+		lipgloss.WithWhitespaceBackground(bg),
+	)
+	content = strings.TrimSuffix(content, "\n")
 
 	var b strings.Builder
 	b.WriteString(header)
 	b.WriteString("\n")
-	b.WriteString(popup)
+	b.WriteString(content)
+	b.WriteString("\n")
 	b.WriteString(footer)
 
 	return b.String()
