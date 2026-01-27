@@ -28,11 +28,9 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| macOS    | Tested |
-| Linux    | Untested |
-| Windows  | Tested |
+- macOS
+- Linux
+- Windows
 
 ## Requirements
 
@@ -43,7 +41,7 @@ A polished TUI tool for discovering network neighbors via CDP (Cisco Discovery P
 # No additional dependencies needed
 ```
 
-### Linux (completely untested)
+### Linux
 
 ```bash
 # Requires libpcap-dev
@@ -51,7 +49,7 @@ sudo apt install libpcap-dev  # Debian/Ubuntu
 sudo dnf install libpcap-devel  # Fedora/RHEL
 ```
 
-### Windows (completely untested)
+### Windows
 
 ```powershell
 # Requires Npcap installed (https://npcap.com)
