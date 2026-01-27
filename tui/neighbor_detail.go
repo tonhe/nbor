@@ -10,8 +10,8 @@ import (
 	"nbor/types"
 )
 
-// renderDetailPopupOverlay renders a centered popup (baseView parameter kept for API compatibility)
-func (m NeighborTableModel) renderDetailPopupOverlay(n *types.Neighbor, _ string) string {
+// renderDetailPopup renders a centered popup in the content area
+func (m NeighborTableModel) renderDetailPopup(n *types.Neighbor, contentHeight int) string {
 	theme := DefaultTheme
 	bg := theme.Base00
 
@@ -158,11 +158,11 @@ func (m NeighborTableModel) renderDetailPopupOverlay(n *types.Neighbor, _ string
 
 	popup := borderStyle.Render(b.String())
 
-	// Center the popup on screen using lipgloss.Place
+	// Center the popup in the content area (between header and footer)
 	// Use the theme background for the surrounding area
 	return lipgloss.Place(
 		m.width,
-		m.height,
+		contentHeight,
 		lipgloss.Center,
 		lipgloss.Center,
 		popup,

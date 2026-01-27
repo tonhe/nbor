@@ -21,17 +21,35 @@ type column struct {
 
 // View renders the neighbor table
 func (m NeighborTableModel) View() string {
-	// Render normal table view first
-	baseView := m.renderBaseView()
-
-	// If detail popup is active, overlay it on top of the base view
+	// If detail popup is active, show header + popup + footer
 	if m.showDetail {
 		if n := m.getSelectedNeighbor(); n != nil {
-			return m.renderDetailPopupOverlay(n, baseView)
+			return m.renderDetailView(n)
 		}
 	}
 
-	return baseView
+	// Render normal table view
+	return m.renderBaseView()
+}
+
+// renderDetailView renders the detail popup with header and footer visible
+func (m NeighborTableModel) renderDetailView(n *types.Neighbor) string {
+	header := m.renderHeader()
+	footer := m.renderFooter()
+
+	// Calculate content area height (between header and footer)
+	contentHeight := m.height - 2 // 1 for header, 1 for footer
+
+	// Render popup centered in content area
+	popup := m.renderDetailPopup(n, contentHeight)
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(popup)
+	b.WriteString(footer)
+
+	return b.String()
 }
 
 // renderBaseView renders the main table view (header + table + footer)
