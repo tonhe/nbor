@@ -45,6 +45,23 @@ type Config struct {
 
 	// Capabilities is the list of capabilities to advertise (router, bridge, station, etc.)
 	Capabilities []string `toml:"capabilities"`
+
+	// FilterCapabilities filters which neighbors to display/log based on their capabilities
+	// Empty means show all neighbors
+	FilterCapabilities []string `toml:"filter_capabilities"`
+
+	// StalenessTimeout is the number of seconds before a neighbor is marked as stale (grayed out)
+	StalenessTimeout int `toml:"staleness_timeout"`
+
+	// StaleRemovalTime is the number of seconds before a stale neighbor is removed from display
+	// 0 means never remove stale neighbors
+	StaleRemovalTime int `toml:"stale_removal_time"`
+
+	// LoggingEnabled controls whether neighbor events are logged to files
+	LoggingEnabled bool `toml:"logging_enabled"`
+
+	// LogDirectory is the directory where log files are stored
+	LogDirectory string `toml:"log_directory"`
 }
 
 // DefaultConfig returns the default configuration
@@ -61,6 +78,11 @@ func DefaultConfig() Config {
 		AdvertiseInterval:  5,
 		TTL:                20,
 		Capabilities:       []string{"station"},
+		FilterCapabilities: []string{}, // Empty means show all
+		StalenessTimeout:   180,         // 3 minutes
+		StaleRemovalTime:   0,           // Never remove
+		LoggingEnabled:     true,
+		LogDirectory:       "", // Empty means use default location
 	}
 }
 
@@ -148,6 +170,15 @@ func Load() (Config, error) {
 		cfg.Capabilities = defaults.Capabilities
 	}
 
+	// Fill in new field defaults
+	// FilterCapabilities: empty is valid (means show all), so don't fill default
+	if cfg.StalenessTimeout <= 0 {
+		cfg.StalenessTimeout = defaults.StalenessTimeout
+	}
+	// StaleRemovalTime: 0 is valid (means never remove), so don't fill default
+	// LoggingEnabled: can't distinguish false from missing, handled by TOML decoder
+	// LogDirectory: empty is valid (means use default location)
+
 	return cfg, nil
 }
 
@@ -203,6 +234,22 @@ func Save(cfg Config) error {
 		"",
 		"# Capabilities to advertise (router, bridge, station, switch, phone, etc.)",
 		fmt.Sprintf("capabilities = %s", formatStringSlice(cfg.Capabilities)),
+		"",
+		"# Display Filtering",
+		"# filter_capabilities limits which neighbors are shown/logged based on capabilities",
+		"# Empty array means show all neighbors",
+		fmt.Sprintf("filter_capabilities = %s", formatStringSlice(cfg.FilterCapabilities)),
+		"",
+		"# Staleness Settings",
+		"# staleness_timeout is seconds before a neighbor is grayed out (default 180)",
+		fmt.Sprintf("staleness_timeout = %d", cfg.StalenessTimeout),
+		"# stale_removal_time is seconds before stale neighbors are removed (0 = never)",
+		fmt.Sprintf("stale_removal_time = %d", cfg.StaleRemovalTime),
+		"",
+		"# Logging",
+		fmt.Sprintf("logging_enabled = %t", cfg.LoggingEnabled),
+		"# log_directory is where log files are stored (empty = default location)",
+		fmt.Sprintf("log_directory = %q", cfg.LogDirectory),
 		"",
 	}
 

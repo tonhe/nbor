@@ -147,7 +147,7 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 				m.scrollOffset--
 			}
 		case key.Matches(msg, neighborKeys.Down):
-			neighbors := m.store.GetAll()
+			neighbors := m.getFilteredNeighbors()
 			maxScroll := len(neighbors) - m.visibleRows()
 			if maxScroll < 0 {
 				maxScroll = 0
@@ -162,8 +162,15 @@ func (m NeighborTableModel) Update(msg tea.Msg) (NeighborTableModel, tea.Cmd) {
 		m.height = msg.Height
 
 	case TickMsg:
-		// Mark stale neighbors (not seen in 3-4 minutes)
-		m.store.MarkStale(4 * time.Minute)
+		// Mark stale neighbors based on config
+		stalenessTimeout := time.Duration(m.config.StalenessTimeout) * time.Second
+		m.store.MarkStale(stalenessTimeout)
+
+		// Remove stale neighbors if configured (0 = never remove)
+		if m.config.StaleRemovalTime > 0 {
+			removalTimeout := time.Duration(m.config.StaleRemovalTime) * time.Second
+			m.store.RemoveStale(removalTimeout)
+		}
 
 		// Clear old flash entries
 		now := time.Now()
@@ -369,7 +376,7 @@ func (m NeighborTableModel) getVisibleColumns() []column {
 func (m NeighborTableModel) renderTable() string {
 	var b strings.Builder
 
-	neighbors := m.store.GetAll()
+	neighbors := m.getFilteredNeighbors()
 	columns := m.getVisibleColumns()
 
 	// Sort neighbors by hostname
@@ -570,4 +577,42 @@ func truncate(s string, width int) string {
 // MarkNewNeighbor marks a neighbor for flashing
 func (m *NeighborTableModel) MarkNewNeighbor(n *types.Neighbor) {
 	m.flashRows[n.NeighborKey()] = time.Now()
+}
+
+// matchesCapabilityFilter checks if a neighbor matches the capability filter
+// If no filter is set (empty slice), all neighbors match
+func (m *NeighborTableModel) matchesCapabilityFilter(n *types.Neighbor) bool {
+	// Empty filter means show all
+	if len(m.config.FilterCapabilities) == 0 {
+		return true
+	}
+
+	// Check if any of the neighbor's capabilities match the filter
+	for _, neighborCap := range n.Capabilities {
+		for _, filterCap := range m.config.FilterCapabilities {
+			if strings.EqualFold(string(neighborCap), filterCap) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getFilteredNeighbors returns neighbors that match the capability filter
+func (m *NeighborTableModel) getFilteredNeighbors() []*types.Neighbor {
+	allNeighbors := m.store.GetAll()
+
+	// If no filter, return all
+	if len(m.config.FilterCapabilities) == 0 {
+		return allNeighbors
+	}
+
+	// Filter neighbors
+	var filtered []*types.Neighbor
+	for _, n := range allNeighbors {
+		if m.matchesCapabilityFilter(n) {
+			filtered = append(filtered, n)
+		}
+	}
+	return filtered
 }

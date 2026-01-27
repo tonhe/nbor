@@ -697,14 +697,16 @@ func main() {
 		cap := capture.NewCapturerWithHandle(handle, internalName)
 		capturer = cap
 
-		// Create CSV logger
-		csvLog, err := logger.NewCSVLogger()
-		if err != nil {
-			p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to create log file: %w", err)})
-			cap.Stop()
-			return
+		// Create CSV logger (if enabled)
+		if cfg.LoggingEnabled {
+			csvLog, err := logger.NewCSVLogger(cfg.LogDirectory, cfg.FilterCapabilities)
+			if err != nil {
+				p.Send(tui.ErrorMsg{Err: fmt.Errorf("failed to create log file: %w", err)})
+				cap.Stop()
+				return
+			}
+			csvLogger = csvLog
 		}
-		csvLogger = csvLog
 
 		// Create broadcaster
 		bc := broadcast.NewBroadcaster(handle, &cfg, &ifaceInfo)
@@ -720,10 +722,12 @@ func main() {
 			// Ring terminal bell
 			platform.Bell()
 
-			// Log to CSV (only new neighbors, not updates)
-			if err := csvLogger.Log(n); err != nil {
-				// Log error but don't crash
-				fmt.Fprintf(os.Stderr, "Warning: failed to log neighbor: %v\n", err)
+			// Log to CSV (only new neighbors, not updates) if logging is enabled
+			if csvLogger != nil {
+				if err := csvLogger.Log(n); err != nil {
+					// Log error but don't crash
+					fmt.Fprintf(os.Stderr, "Warning: failed to log neighbor: %v\n", err)
+				}
 			}
 
 			// Notify TUI
@@ -731,10 +735,16 @@ func main() {
 		}
 		// Note: OnUpdate not set - we only log first-seen neighbors
 
+		// Determine log path for display
+		logPath := ""
+		if csvLogger != nil {
+			logPath = csvLogger.Filepath()
+		}
+
 		// Signal TUI to transition to capture view
 		p.Send(tui.StartCaptureMsg{
 			Interface: ifaceInfo,
-			LogPath:   csvLogger.Filepath(),
+			LogPath:   logPath,
 		})
 
 		// Start capturing
@@ -764,12 +774,15 @@ func main() {
 	// Goroutine to handle log restart requests
 	go func() {
 		for range restartLogChan {
-			if csvLogger != nil {
-				// Close old log file
-				csvLogger.Close()
+			// Only restart if logging is enabled
+			if cfg.LoggingEnabled {
+				// Close old log file if exists
+				if csvLogger != nil {
+					csvLogger.Close()
+				}
 
-				// Create new log file
-				newLogger, err := logger.NewCSVLogger()
+				// Create new log file with current config
+				newLogger, err := logger.NewCSVLogger(cfg.LogDirectory, cfg.FilterCapabilities)
 				if err != nil {
 					// Log error but continue with old logger
 					continue

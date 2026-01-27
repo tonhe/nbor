@@ -14,17 +14,27 @@ import (
 
 // CSVLogger handles logging neighbor discoveries to a CSV file
 type CSVLogger struct {
-	mu       sync.Mutex
-	file     *os.File
-	writer   *csv.Writer
-	filepath string
+	mu                 sync.Mutex
+	file               *os.File
+	writer             *csv.Writer
+	filepath           string
+	filterCapabilities []string // Capability filter (empty = log all)
 }
 
 // NewCSVLogger creates a new CSV logger with a timestamped filename
-func NewCSVLogger() (*CSVLogger, error) {
+// If directory is empty, logs are created in the current directory
+func NewCSVLogger(directory string, filterCapabilities []string) (*CSVLogger, error) {
 	// Generate filename with timestamp
 	timestamp := time.Now().Format("2006-01-02-150405")
 	filename := fmt.Sprintf("nbor-%s.csv", timestamp)
+
+	// If directory is specified, create it if needed and prepend to filename
+	if directory != "" {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create log directory: %w", err)
+		}
+		filename = directory + string(os.PathSeparator) + filename
+	}
 
 	file, err := os.Create(filename)
 	if err != nil {
@@ -34,9 +44,10 @@ func NewCSVLogger() (*CSVLogger, error) {
 	writer := csv.NewWriter(file)
 
 	logger := &CSVLogger{
-		file:     file,
-		writer:   writer,
-		filepath: filename,
+		file:               file,
+		writer:             writer,
+		filepath:           filename,
+		filterCapabilities: filterCapabilities,
 	}
 
 	// Write header row
@@ -64,8 +75,33 @@ func NewCSVLogger() (*CSVLogger, error) {
 	return logger, nil
 }
 
+// ShouldLog checks if a neighbor matches the capability filter
+// Returns true if the neighbor should be logged
+func (l *CSVLogger) ShouldLog(n *types.Neighbor) bool {
+	// Empty filter means log all
+	if len(l.filterCapabilities) == 0 {
+		return true
+	}
+
+	// Check if any of the neighbor's capabilities match the filter
+	for _, neighborCap := range n.Capabilities {
+		for _, filterCap := range l.filterCapabilities {
+			if strings.EqualFold(string(neighborCap), filterCap) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Log writes a neighbor record to the CSV file
+// Respects the capability filter - neighbors not matching the filter are skipped
 func (l *CSVLogger) Log(n *types.Neighbor) error {
+	// Check filter first
+	if !l.ShouldLog(n) {
+		return nil // Skip logging, but not an error
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

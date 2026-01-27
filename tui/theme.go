@@ -518,6 +518,36 @@ func SetTheme(theme Theme) {
 	DefaultStyles = NewStyles(theme)
 }
 
+// GetThemeCount returns the number of available themes
+func GetThemeCount() int {
+	return len(ListThemes())
+}
+
+// GetThemeByIndex returns the theme slug, display name, and Theme at the given index
+// Returns empty strings and nil Theme if index is out of range
+func GetThemeByIndex(idx int) (slug string, name string, theme *Theme) {
+	themes := ListThemes()
+	if idx < 0 || idx >= len(themes) {
+		return "", "", nil
+	}
+	slug = themes[idx][0]
+	name = themes[idx][1]
+	theme = GetThemeByName(slug)
+	return slug, name, theme
+}
+
+// GetThemeIndex returns the index of a theme by its slug name
+// Returns -1 if the theme is not found
+func GetThemeIndex(slug string) int {
+	themes := ListThemes()
+	for i, t := range themes {
+		if t[0] == slug {
+			return i
+		}
+	}
+	return -1
+}
+
 // Styles holds all the styled components for the TUI
 type Styles struct {
 	// App container

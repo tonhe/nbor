@@ -261,6 +261,23 @@ func (s *NeighborStore) MarkStale(threshold time.Duration) {
 	}
 }
 
+// RemoveStale removes neighbors that have been stale longer than the threshold
+// Returns the number of neighbors removed
+func (s *NeighborStore) RemoveStale(threshold time.Duration) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+	for key, n := range s.neighbors {
+		if n.IsStale && now.Sub(n.LastSeen) > threshold {
+			delete(s.neighbors, key)
+			removed++
+		}
+	}
+	return removed
+}
+
 // ClearNewFlags clears the IsNew flag on all neighbors
 func (s *NeighborStore) ClearNewFlags() {
 	s.mu.Lock()
