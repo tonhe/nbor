@@ -2,4 +2,4 @@
 package version
 
 // Version is the current version of nbor
-const Version = "0.4.0"
+const Version = "0.4.1"

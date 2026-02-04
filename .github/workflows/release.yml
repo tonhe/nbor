@@ -97,11 +97,35 @@ jobs:
         run: |
           go build -o nbor-windows-amd64.exe
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
+      - name: Get version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare installer files
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE installer/windows/LICENSE.txt
+
+      - name: Build Windows Installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} installer/windows/nbor.iss
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-binaries
-          path: nbor-windows-amd64.exe
+          path: |
+            nbor-windows-amd64.exe
+            nbor-setup-windows-amd64.exe
 
   release:
     needs: [build-macos, build-linux, build-windows]

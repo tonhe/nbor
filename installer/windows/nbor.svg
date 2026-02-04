@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Background -->
+  <rect width="256" height="256" rx="32" fill="#002b36"/>
+
+  <!-- Connection lines (blue) -->
+  <line x1="128" y1="128" x2="64" y2="64" stroke="#268bd2" stroke-width="8" stroke-linecap="round"/>
+  <line x1="128" y1="128" x2="192" y2="64" stroke="#268bd2" stroke-width="8" stroke-linecap="round"/>
+  <line x1="128" y1="128" x2="64" y2="192" stroke="#268bd2" stroke-width="8" stroke-linecap="round"/>
+  <line x1="128" y1="128" x2="192" y2="192" stroke="#268bd2" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Outer nodes (cyan) -->
+  <circle cx="64" cy="64" r="28" fill="#2aa198"/>
+  <circle cx="192" cy="64" r="28" fill="#2aa198"/>
+  <circle cx="64" cy="192" r="28" fill="#2aa198"/>
+  <circle cx="192" cy="192" r="28" fill="#2aa198"/>
+
+  <!-- Center node (larger, cyan with highlight) -->
+  <circle cx="128" cy="128" r="40" fill="#2aa198"/>
+  <circle cx="128" cy="128" r="28" fill="#002b36"/>
+  <circle cx="128" cy="128" r="20" fill="#2aa198"/>
+
+  <!-- Node highlights (light foreground) -->
+  <circle cx="54" cy="54" r="8" fill="#93a1a1" opacity="0.5"/>
+  <circle cx="182" cy="54" r="8" fill="#93a1a1" opacity="0.5"/>
+  <circle cx="54" cy="182" r="8" fill="#93a1a1" opacity="0.5"/>
+  <circle cx="182" cy="182" r="8" fill="#93a1a1" opacity="0.5"/>
+</svg>

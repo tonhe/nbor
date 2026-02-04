@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"slices"
 	"syscall"
@@ -375,14 +376,21 @@ func main() {
 			os.Exit(1)
 		}
 		// Build args, adding --no-auto-select if not already present
-		args := os.Args
+		args := os.Args[1:] // Skip program name for exec.Command
 		if !slices.Contains(args, "--no-auto-select") {
 			args = append(args, "--no-auto-select")
 		}
-		if err := syscall.Exec(exe, args, os.Environ()); err != nil {
+		// Use os/exec instead of syscall.Exec for cross-platform support (Windows)
+		cmd := exec.Command(exe, args...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Env = os.Environ()
+		if err := cmd.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error restarting: %v\n", err)
 			os.Exit(1)
 		}
+		os.Exit(0)
 	default:
 		// Normal exit
 	}
