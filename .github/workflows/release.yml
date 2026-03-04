@@ -37,11 +37,37 @@ jobs:
           go build -o nbor-macos-arm64
           chmod +x nbor-macos-arm64
 
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Create tar.gz archives
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+
+          # amd64 archive
+          mkdir -p staging-amd64
+          cp nbor-macos-amd64 staging-amd64/nbor
+          cp LICENSE README.md staging-amd64/
+          tar -czf "nbor_${VERSION}_darwin_amd64.tar.gz" -C staging-amd64 .
+
+          # arm64 archive
+          mkdir -p staging-arm64
+          cp nbor-macos-arm64 staging-arm64/nbor
+          cp LICENSE README.md staging-arm64/
+          tar -czf "nbor_${VERSION}_darwin_arm64.tar.gz" -C staging-arm64 .
+
+          # Checksums
+          shasum -a 256 nbor_${VERSION}_darwin_*.tar.gz > checksums.txt
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-binaries
-          path: nbor-macos-*
+          path: |
+            nbor-macos-*
+            nbor_*.tar.gz
+            checksums.txt
 
   build-linux:
     runs-on: ubuntu-latest
@@ -143,3 +169,100 @@ jobs:
           files: binaries/*
           draft: true
           generate_release_notes: true
+
+  update-homebrew:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: tonhe
+          repositories: homebrew-tap
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binaries
+          path: artifacts
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Compute SHA256 hashes
+        id: hashes
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          AMD64_SHA=$(shasum -a 256 artifacts/nbor_${VERSION}_darwin_amd64.tar.gz | awk '{print $1}')
+          ARM64_SHA=$(shasum -a 256 artifacts/nbor_${VERSION}_darwin_arm64.tar.gz | awk '{print $1}')
+          echo "AMD64_SHA=${AMD64_SHA}" >> $GITHUB_OUTPUT
+          echo "ARM64_SHA=${ARM64_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: tonhe/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          AMD64_SHA=${{ steps.hashes.outputs.AMD64_SHA }}
+          ARM64_SHA=${{ steps.hashes.outputs.ARM64_SHA }}
+
+          cat > homebrew-tap/Formula/nbor.rb << 'FORMULA'
+          class Nbor < Formula
+            desc "TUI tool for discovering network neighbors via CDP and LLDP"
+            homepage "https://github.com/tonhe/nbor"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/tonhe/nbor/releases/download/v#{version}/nbor_#{version}_darwin_arm64.tar.gz"
+                sha256 "ARM64_SHA_PLACEHOLDER"
+              elsif Hardware::CPU.intel?
+                url "https://github.com/tonhe/nbor/releases/download/v#{version}/nbor_#{version}_darwin_amd64.tar.gz"
+                sha256 "AMD64_SHA_PLACEHOLDER"
+              end
+            end
+
+            def install
+              bin.install "nbor"
+            end
+
+            def caveats
+              <<~EOS
+                nbor requires root privileges for packet capture.
+                Run with: sudo nbor
+              EOS
+            end
+
+            test do
+              assert_match "nbor version", shell_output("#{bin}/nbor --version")
+            end
+          end
+          FORMULA
+
+          # Replace placeholders with actual values
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" homebrew-tap/Formula/nbor.rb
+          sed -i "s/ARM64_SHA_PLACEHOLDER/${ARM64_SHA}/g" homebrew-tap/Formula/nbor.rb
+          sed -i "s/AMD64_SHA_PLACEHOLDER/${AMD64_SHA}/g" homebrew-tap/Formula/nbor.rb
+
+          # Fix indentation (heredoc adds leading spaces)
+          sed -i 's/^          //' homebrew-tap/Formula/nbor.rb
+
+      - name: Commit and push formula
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/nbor.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "feat: update nbor formula to v${{ steps.version.outputs.VERSION }}"
+          git push
