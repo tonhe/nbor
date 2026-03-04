@@ -183,24 +183,17 @@ jobs:
           owner: tonhe
           repositories: homebrew-tap
 
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-binaries
-          path: artifacts
-
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Compute SHA256 hashes
-        id: hashes
+      - name: Download source tarball and compute SHA256
+        id: sha
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          AMD64_SHA=$(shasum -a 256 artifacts/nbor_${VERSION}_darwin_amd64.tar.gz | awk '{print $1}')
-          ARM64_SHA=$(shasum -a 256 artifacts/nbor_${VERSION}_darwin_arm64.tar.gz | awk '{print $1}')
-          echo "AMD64_SHA=${AMD64_SHA}" >> $GITHUB_OUTPUT
-          echo "ARM64_SHA=${ARM64_SHA}" >> $GITHUB_OUTPUT
+          curl -sL "https://github.com/tonhe/nbor/archive/refs/tags/v${VERSION}.tar.gz" -o source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | awk '{print $1}')
+          echo "SHA256=${SHA256}" >> $GITHUB_OUTPUT
 
       - name: Checkout homebrew-tap
         uses: actions/checkout@v4
@@ -212,37 +205,26 @@ jobs:
       - name: Update formula
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          AMD64_SHA=${{ steps.hashes.outputs.AMD64_SHA }}
-          ARM64_SHA=${{ steps.hashes.outputs.ARM64_SHA }}
+          SHA256=${{ steps.sha.outputs.SHA256 }}
 
-          cat > homebrew-tap/Formula/nbor.rb << 'FORMULA'
+          cat > homebrew-tap/Formula/nbor.rb << FORMULA
           class Nbor < Formula
             desc "TUI tool for discovering network neighbors via CDP and LLDP"
             homepage "https://github.com/tonhe/nbor"
-            version "VERSION_PLACEHOLDER"
+            url "https://github.com/tonhe/nbor/archive/refs/tags/v${VERSION}.tar.gz"
+            sha256 "${SHA256}"
             license "MIT"
 
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/tonhe/nbor/releases/download/v#{version}/nbor_#{version}_darwin_arm64.tar.gz"
-                sha256 "ARM64_SHA_PLACEHOLDER"
-              elsif Hardware::CPU.intel?
-                url "https://github.com/tonhe/nbor/releases/download/v#{version}/nbor_#{version}_darwin_amd64.tar.gz"
-                sha256 "AMD64_SHA_PLACEHOLDER"
-              end
-            end
+            depends_on "go" => :build
 
             def install
-              bin.install "nbor"
+              system "go", "build", *std_go_args
             end
 
             def caveats
               <<~EOS
                 nbor requires root privileges for packet capture.
                 Run with: sudo nbor
-
-                If macOS kills the binary on first run, remove the quarantine flag:
-                  sudo xattr -d com.apple.quarantine #{bin}/nbor
               EOS
             end
 
@@ -251,11 +233,6 @@ jobs:
             end
           end
           FORMULA
-
-          # Replace placeholders with actual values
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" homebrew-tap/Formula/nbor.rb
-          sed -i "s/ARM64_SHA_PLACEHOLDER/${ARM64_SHA}/g" homebrew-tap/Formula/nbor.rb
-          sed -i "s/AMD64_SHA_PLACEHOLDER/${AMD64_SHA}/g" homebrew-tap/Formula/nbor.rb
 
           # Fix indentation (heredoc adds leading spaces)
           sed -i 's/^          //' homebrew-tap/Formula/nbor.rb
