@@ -8,18 +8,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ErrNotPrivileged is returned when the application lacks required privileges
-var ErrNotPrivileged = errors.New("nbor requires Administrator privileges. Run from an elevated prompt")
-
 // ErrNpcapNotFound is returned when Npcap is not installed
 var ErrNpcapNotFound = errors.New("Npcap not found. Please install Npcap from https://npcap.com (check 'WinPcap API-compatible Mode' during install)")
 
 // CheckPrivileges verifies the application has necessary privileges for packet capture
 func CheckPrivileges() error {
-	// First check for Npcap by trying to find devices
-	// This is done in capture package, but we check admin rights here
 	if !isAdmin() {
-		return ErrNotPrivileged
+		return errors.New("nbor requires Administrator privileges.\nRight-click Command Prompt or PowerShell and select 'Run as administrator'")
 	}
 	return nil
 }
@@ -52,7 +47,3 @@ func isAdmin() bool {
 	return member
 }
 
-// GetPrivilegeHint returns a hint for how to gain privileges
-func GetPrivilegeHint() string {
-	return "Right-click Command Prompt or PowerShell and select 'Run as administrator'"
-}

@@ -97,10 +97,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check privileges
+	// Check privileges (on macOS/Linux, auto-elevates with sudo if needed)
 	if err := platform.CheckPrivileges(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "%s\n", platform.GetPrivilegeHint())
 		os.Exit(1)
 	}
 
